@@ -91,24 +91,15 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
   An unexpected error clears the swipe and is reported once per session, not on every event.
 - The usable/range tint checks `issecretvalue` and leaves the icon white for secret answers.
 
-## Target and evidence
-
-- Target: Forever only, interface `16001`.
-- Source checked: Gethe/wow-ui-source `forever` branch at
-  `eac30af597e5aaa43a60f6675ef5fdcea100375f` (1.60.1.70790, the installed build on 2026-11-06).
-- Every widget method and spell/spellbook API the addon calls is declared in that commit's
-  generated API documentation.
-
 ## Checks
 
 | Check | Result |
 |---|---|
 | Lua 5.1 parse (luaparse 0.3.1), including the three secure snippets | Pass |
 | Smoke test `tests/rankflyout_smoke.lua` (fengari, stubbed API, including secret values) | 91 of 91 passed (0.3.1); the 0.3.0 code fails the 3 secret-value checks |
-| In the Forever client | 0.2.0 reported working by the user (2026-11-06). 0.3.0 gave a flood of errors in Shadowfang Keep (player report, no error text). 0.3.1's fix not yet run in an instance |
+| In the Forever client | Not yet run in an instance with 0.3.1 |
 
-The user's report was overall ("works great"). The individual points below weren't
-reported one by one, so recheck any that look off:
+Points to check in the client:
 
 1. Secure snippets run on this build (early Forever betas had a bug here, reported fixed in 70009).
 2. Casting a lower rank's spell ID casts that rank, not the highest one.
