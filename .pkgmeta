@@ -1,0 +1,9 @@
+package-as: RankFlyout
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# Kept in the repository, left out of the download.
+ignore:
+  - tests

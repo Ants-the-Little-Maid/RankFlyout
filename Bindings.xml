@@ -1,0 +1,14 @@
+<Bindings>
+	<Binding name="CLICK RankFlyoutButton1:LeftButton" header="RANKFLYOUT" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton5:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton6:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton7:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton8:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton10:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton11:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankFlyoutButton12:LeftButton" category="ADDONS"/>
+</Bindings>

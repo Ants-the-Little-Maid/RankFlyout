@@ -1,0 +1,13 @@
+# Packager output and local secrets
+.release/
+*.zip
+.env
+
+# Editor and OS clutter
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Crash dumps from Git Bash tools
+*.stackdump
