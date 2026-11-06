@@ -57,7 +57,17 @@ function Frame:GetPoint() return "CENTER", nil, "CENTER", 10, 20 end
 function Frame:SetTexture(t) self.texture = t end
 function Frame:RegisterEvent(e) local ev = rawget(self, "events") or {}; self.events = ev; ev[e] = true end
 function Frame:UnregisterEvent(e) local ev = rawget(self, "events"); if ev then ev[e] = nil end end
-function Frame:SetCooldown(s, d) self.cd = { s, d } end
+-- Secret values: the client errors when addon (tainted) code passes one to a
+-- function marked AllowedWhenUntainted, such as Cooldown:SetCooldown.
+local SECRET = setmetatable({}, { __tostring = function() return "<secret>" end })
+function issecretvalue(v) return rawequal(v, SECRET) end
+function Frame:SetCooldown(s, d, m)
+	if issecretvalue(s) or issecretvalue(d) or issecretvalue(m) then
+		error("SetCooldown: secret value passed from tainted code")
+	end
+	self.cd = { s, d }
+end
+function Frame:SetVertexColor(r, g, b) self.tint = { r, g, b } end
 function Frame:Clear() self.cd = nil end
 function Frame:SetSize(w, h) self.w, self.h = w, h end
 function Frame:SetPoint(p, rel, rp) if type(rel) == "table" then self.anchor = rel end end
@@ -458,6 +468,58 @@ SlashCmdList.RANKFLYOUT("minimap on")
 check(mm:IsShown(), "/rf minimap on shows it")
 mm.scripts.OnClick(mm, "RightButton")
 check(pf:IsShown(), "right-click without a menu system falls back to the picker")
+
+---------------------------------------------------------------- secret values (instances)
+-- 0.3.0 threw a Lua error on every SPELL_UPDATE_COOLDOWN inside instances,
+-- because restricted cooldown times are secret and went straight to SetCooldown.
+local sb = ns.GetButton(ns.FindFamily("Frostbolt"))
+local realCooldown, realUsable = C_Spell.GetSpellCooldown, C_Spell.IsSpellUsable
+inCombat = true
+C_Spell.GetSpellCooldown = function()
+	return { isActive = true, isEnabled = true, startTime = SECRET, duration = SECRET, modRate = SECRET }
+end
+local okEvent, errEvent = pcall(events.scripts.OnEvent, events, "SPELL_UPDATE_COOLDOWN")
+check(okEvent, "secret cooldown times raise no error: " .. tostring(errEvent))
+check(sb.cooldown.cd == nil, "secret cooldown without duration objects clears the swipe")
+
+-- With the duration-object API (the path the real client takes).
+local durationObject = {}
+C_Spell.GetSpellCooldownDuration = function() return durationObject end
+function Frame:SetCooldownFromDurationObject(d) self.cd = { "duration", d } end
+okEvent, errEvent = pcall(events.scripts.OnEvent, events, "SPELL_UPDATE_COOLDOWN")
+check(okEvent and sb.cooldown.cd and sb.cooldown.cd[2] == durationObject,
+	"secret cooldown shown through a duration object")
+
+-- Plain times keep the SetCooldown path even when duration objects exist.
+C_Spell.GetSpellCooldown = function() return { isActive = true, startTime = 5, duration = 8, modRate = 1 } end
+events.scripts.OnEvent(events, "SPELL_UPDATE_COOLDOWN")
+check(sb.cooldown.cd and sb.cooldown.cd[2] == 8, "plain cooldown still uses SetCooldown")
+
+-- Unexpected display errors are reported once, not on every event.
+local reports = {}
+geterrorhandler = function() return function(msg) reports[#reports + 1] = msg end end
+local realFromDuration = Frame.SetCooldownFromDurationObject
+Frame.SetCooldownFromDurationObject = function() error("boom") end
+C_Spell.GetSpellCooldown = function()
+	return { isActive = true, startTime = SECRET, duration = SECRET, modRate = SECRET }
+end
+for _ = 1, 3 do events.scripts.OnEvent(events, "SPELL_UPDATE_COOLDOWN") end
+check(#reports == 1 and reports[1]:find("boom") and sb.cooldown.cd == nil,
+	"unexpected cooldown error cleared the swipe and was reported once")
+geterrorhandler, Frame.SetCooldownFromDurationObject = nil, realFromDuration
+C_Spell.GetSpellCooldownDuration, Frame.SetCooldownFromDurationObject = nil, nil
+
+-- Secret usability and range answers leave the icon untinted.
+C_Spell.IsSpellUsable = function() return SECRET, SECRET end
+sb.icon.tint = nil
+local okTick, errTick = pcall(events.scripts.OnUpdate, events, 1)
+check(okTick, "range tick with secret answers raises no error: " .. tostring(errTick))
+check(sb.icon.tint and sb.icon.tint[1] == 1 and sb.icon.tint[3] == 1, "secret usability leaves the icon white")
+C_Spell.IsSpellUsable = function() return false, true end
+events.scripts.OnUpdate(events, 1)
+check(sb.icon.tint and sb.icon.tint[1] == 0.5, "out-of-mana tint still works")
+C_Spell.GetSpellCooldown, C_Spell.IsSpellUsable = realCooldown, realUsable
+inCombat = false
 
 __RESULT = ("%d passed, %d failed"):format(passed, failed)
 __FAILED = failed

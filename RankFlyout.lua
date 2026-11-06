@@ -266,34 +266,86 @@ local function Skin(btn, size)
 	btn.rankText:SetPoint("BOTTOMRIGHT", -2, 2)
 end
 
-local function UpdateCooldown(btn, spellID)
-	-- Same pattern as Blizzard's ActionButton_ApplyCooldown: isActive is never
-	-- secret, and the start/duration values go straight to the widget.
-	local info = spellID and C_Spell.GetSpellCooldown(spellID)
-	if info and info.isActive then
-		btn.cooldown:SetCooldown(info.startTime, info.duration, info.modRate)
-	else
-		btn.cooldown:Clear()
+-- Secret values. In instances (boss encounters, and combat where cooldowns are
+-- restricted) some spell APIs return "secret" values. Addon code may pass them
+-- only to functions marked AllowedWhenTainted, and may not compare or test them.
+-- Cooldown:SetCooldown is AllowedWhenUntainted, so passing it a secret start or
+-- duration is a Lua error on every SPELL_UPDATE_COOLDOWN (0.3.0 bug, SFK report).
+local issecret = issecretvalue or function() return false end
+
+local function ApplyCooldown(cooldown, spellID)
+	local info = C_Spell.GetSpellCooldown(spellID)
+	if not (info and info.isActive) then -- isActive is NeverSecret
+		cooldown:Clear()
+		return
 	end
+	-- Plain numbers: the SetCooldown path 0.2.0 was confirmed working with.
+	if not (issecret(info.startTime) or issecret(info.duration) or issecret(info.modRate)) then
+		if pcall(cooldown.SetCooldown, cooldown, info.startTime, info.duration, info.modRate) then
+			return
+		end
+	end
+	-- Secret times (or SetCooldown refused them): a duration object is not itself
+	-- secret, so addon code may hand it to the widget even while the times inside
+	-- it are (C_Spell.GetSpellCooldownDuration is not SecretWhenCooldownsRestricted).
+	local duration = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellID)
+	if duration and cooldown.SetCooldownFromDurationObject then
+		cooldown:SetCooldownFromDurationObject(duration)
+	else
+		cooldown:Clear()
+	end
+end
+
+-- Display code runs on every cooldown event and range tick, so it must never
+-- flood the error frame. An unexpected error is still reported, once per kind
+-- per session, so a bug report has something to go on.
+local reported = {}
+local function ReportOnce(kind, err)
+	if reported[kind] then return end
+	reported[kind] = true
+	local handler = geterrorhandler and geterrorhandler()
+	if handler then handler(("Rank Flyout (%s, reported once): %s"):format(kind, tostring(err))) end
+end
+
+local function UpdateCooldown(btn, spellID)
+	if not spellID then
+		btn.cooldown:Clear()
+		return
+	end
+	local ok, err = pcall(ApplyCooldown, btn.cooldown, spellID)
+	if not ok then
+		btn.cooldown:Clear()
+		ReportOnce("cooldown", err)
+	end
+end
+
+-- Returns the icon tint. Any secret answer leaves the icon untinted.
+local function UsableColor(spellID)
+	local usable, noMana = C_Spell.IsSpellUsable(spellID)
+	if issecret(usable) or issecret(noMana) then return 1, 1, 1 end
+	local r, g, b = 1, 1, 1
+	if noMana then
+		r, g, b = 0.5, 0.5, 1
+	elseif not usable then
+		r, g, b = 0.4, 0.4, 0.4
+	end
+	if UnitExists("target") then
+		local hasRange = C_Spell.SpellHasRange(spellID)
+		if not issecret(hasRange) and hasRange then
+			local inRange = C_Spell.IsSpellInRange(spellID, "target")
+			if not issecret(inRange) and inRange == false then
+				r, g, b = 0.8, 0.1, 0.1
+			end
+		end
+	end
+	return r, g, b
 end
 
 local function UpdateUsable(btn, spellID)
 	local r, g, b = 1, 1, 1
 	if spellID then
-		local ok = pcall(function()
-			local usable, noMana = C_Spell.IsSpellUsable(spellID)
-			if noMana then
-				r, g, b = 0.5, 0.5, 1
-			elseif not usable then
-				r, g, b = 0.4, 0.4, 0.4
-			end
-			if C_Spell.SpellHasRange(spellID) and UnitExists("target") then
-				if C_Spell.IsSpellInRange(spellID, "target") == false then
-					r, g, b = 0.8, 0.1, 0.1
-				end
-			end
-		end)
-		if not ok then r, g, b = 1, 1, 1 end
+		local ok, cr, cg, cb = pcall(UsableColor, spellID)
+		if ok then r, g, b = cr, cg, cb else ReportOnce("tint", cr) end
 	end
 	btn.icon:SetVertexColor(r, g, b)
 end

@@ -84,7 +84,12 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
   `ShowAllSpellRanks` option is on (`C_SpellBook.IsSpellBookItemLowRank`).
 - The spellbook is rescanned on `SPELLS_CHANGED` and `LEARNED_SPELL_IN_SKILL_LINE`. If that
   happens in combat, the rescan waits until combat ends.
-- Cooldowns follow Blizzard's `ActionButton_ApplyCooldown` pattern (`isActive` is never secret).
+- Cooldowns: `isActive` (never secret) decides whether to show one. Plain times go to
+  `SetCooldown`, as in 0.2.0. In instances the start and duration times are secret, and
+  `SetCooldown` rejects secret values from addon code (it is `AllowedWhenUntainted`), so
+  those go through `C_Spell.GetSpellCooldownDuration` and `SetCooldownFromDurationObject`.
+  An unexpected error clears the swipe and is reported once per session, not on every event.
+- The usable/range tint checks `issecretvalue` and leaves the icon white for secret answers.
 
 ## Target and evidence
 
@@ -99,8 +104,8 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
 | Check | Result |
 |---|---|
 | Lua 5.1 parse (luaparse 0.3.1), including the three secure snippets | Pass |
-| Smoke test `tests/rankflyout_smoke.lua` (fengari, stubbed API) | 83 of 83 passed (0.3.0) |
-| In the Forever client | 0.2.0 reported working by the user (2026-11-06). 0.3.0 (picker, minimap) not run |
+| Smoke test `tests/rankflyout_smoke.lua` (fengari, stubbed API, including secret values) | 91 of 91 passed (0.3.1); the 0.3.0 code fails the 3 secret-value checks |
+| In the Forever client | 0.2.0 reported working by the user (2026-11-06). 0.3.0 gave a flood of errors in Shadowfang Keep (player report, no error text). 0.3.1's fix not yet run in an instance |
 
 The user's report was overall ("works great"). The individual points below weren't
 reported one by one, so recheck any that look off:
@@ -117,3 +122,5 @@ reported one by one, so recheck any that look off:
 8. 0.3.0 spell picker: the window, tabs, class portrait, paging, dropping spells on it,
    and that a picked spell's macro lands on the cursor ready for a bar slot.
 9. 0.3.0 minimap button: the book icon, the right-click settings menu, and dragging.
+10. 0.3.1: fight in a dungeon with `/console scriptErrors 1` (or BugSack). There should be no
+    errors, and the cooldown swipe should still show on the bar slot and floating button.
