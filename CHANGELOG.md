@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1 (2026-11-07)
+
+- **Buttons are now saved per character.** Each character has its own 12 buttons, with their own spells, ranks and positions, so a rank chosen or a button removed on one character no longer changes another's. Menu direction, scale, lock, floating buttons and the minimap button stay shared.
+  - Coming from 0.4.0: the first character you log in with keeps all of 0.4.0's buttons. Each other character keeps the ones its bar macros and key bindings use.
+- Right-clicking a bar slot opens the menu beside that slot, even when the same macro is on more than one slot. (In combat the menu can't move, so it opens where it last was.)
+- Moving over from Rank Flyout:
+  - Spells with brackets in their name, such as Faerie Fire (Feral), now move correctly.
+  - Two old buttons for the same spell (say Rank 1 and Rank 4) stay as two buttons instead of being merged.
+  - Key bindings move only with their button's macro, so a key never lands on a button holding a different spell.
+- A button keeps its chosen rank while the spellbook doesn't list its spell.
+- Macro names cut to 16 characters no longer split a letter in non-English clients, and a macro that WoW stores slightly differently is edited once instead of over and over.
+- Less repeated work: a rebuild updates each button and macro once, and a burst of macro changes is checked once.
+
 ## 0.4.0 (2026-11-07)
 
 - Renamed from Rank Flyout to **Rank in File**. The addon folder is now `RankInFile`, and `/rankinfile` replaces `/rankflyout`. `/rf` is unchanged.

@@ -237,9 +237,25 @@ for _, f in ipairs(frames) do
 end
 check(events ~= nil, "event frame registered ADDON_LOADED")
 events.scripts.OnEvent(events, "ADDON_LOADED", "RankInFile")
-check(type(RankInFileDB) == "table", "saved variables created")
+check(type(RankInFileDB) == "table" and type(RankInFileCharDB) == "table", "saved variables created")
 events.scripts.OnEvent(events, "PLAYER_LOGIN")
 check(RankInFileButton1 == nil, "no buttons before /rf add")
+
+-- A new login: the addon loads afresh with this character's saved buttons
+-- (account settings carry over).
+local function NewSession(charDB, guid)
+	RankInFileCharDB, playerGUID = charDB, guid
+	ns = {}
+	for _, file in ipairs({ "RankInFile.lua", "Picker.lua", "Minimap.lua" }) do
+		assert(loadfile((ADDON_DIR or ".") .. "/" .. file))("RankInFile", ns)
+	end
+	for _, f in ipairs(frames) do
+		local ev = rawget(f, "events")
+		if ev and ev.ADDON_LOADED then events = f end
+	end
+	events.scripts.OnEvent(events, "ADDON_LOADED", "RankInFile")
+	events.scripts.OnEvent(events, "PLAYER_LOGIN")
+end
 
 -- add by name
 SlashCmdList.RANKINFILE("add Frostbolt")
@@ -251,7 +267,7 @@ check(b:GetAttribute("rf-count") == 3, "three ranks found, passive ignored")
 check(b.rankText.text == "3", "rank label shows 3")
 check(b.hotkey.text == "sM4", "hotkey abbreviated")
 check(b.cooldown.cd and b.cooldown.cd[2] == 8, "cooldown applied for active spell")
-check(RankInFileDB.buttons[1].top == true, "follow-highest flag set")
+check(RankInFileCharDB.buttons[1].top == true, "follow-highest flag set")
 check(b.rankButtons[1]:GetAttribute("spell") == 837 and b.rankButtons[3]:GetAttribute("spell") == 116,
 	"menu lists highest first")
 check(b.arrow.shown, "arrow shown with several ranks")
@@ -272,7 +288,7 @@ check(r1b == false and r2b == false, "left-click on a rank does not cast")
 check(b:GetAttribute("spell") == 116, "rank 1 selected in combat")
 check(not b.flyout:IsShown(), "menu closes after choosing")
 check(b.rankText.text == "1", "label updated to rank 1")
-check(RankInFileDB.buttons[1].spellID == 116 and RankInFileDB.buttons[1].top == false, "choice saved")
+check(RankInFileCharDB.buttons[1].spellID == 116 and RankInFileCharDB.buttons[1].top == false, "choice saved")
 
 -- right-click a rank casts once without swapping
 Click(b, "RightButton")
@@ -319,7 +335,7 @@ SlashCmdList.RANKINFILE("remove 2")
 check(b2:IsShown(), "remove refused in combat")
 inCombat = false
 SlashCmdList.RANKINFILE("remove 2")
-check(not b2:IsShown() and RankInFileDB.buttons[2] == nil, "remove works out of combat")
+check(not b2:IsShown() and RankInFileCharDB.buttons[2] == nil, "remove works out of combat")
 
 -- direction / scale / unknown spell / help
 SlashCmdList.RANKINFILE("dir left")
@@ -543,11 +559,23 @@ end
 local function canonical(n, rank)
 	return ("#showtooltip Frostbolt(%s)\n/click [btn:2] RankInFileButton%d RightButton; RankInFileButton%d"):format(rank, n, n)
 end
-for i = 1, ns.MAX_BUTTONS do if RankInFileDB.buttons[i] then ns.RemoveButton(i) end end
+local function legacy(show, n)
+	return ("#showtooltip %s\n/click [btn:2] RankFlyoutButton%d RightButton; RankFlyoutButton%d"):format(show, n, n)
+end
+-- Log in as another character: its own character macros and key bindings,
+-- with the account's macros and settings.
+local function LogInAs(charDB, guid, charMacros, keys)
+	for i in pairs(macros) do if i > 120 then macros[i] = nil end end
+	for i, m in pairs(charMacros or {}) do macros[i] = m end
+	for k in pairs(bindings) do bindings[k] = nil end
+	for k, v in pairs(keys or {}) do bindings[k] = v end
+	NewSession(charDB, guid)
+end
+for i = 1, ns.MAX_BUTTONS do if RankInFileCharDB.buttons[i] then ns.RemoveButton(i) end end
 RankInFileDB.float = true
-RankInFileDB.movedButtons = nil
+RankInFileCharDB.moved = nil
 -- Button 3 is already taken in Rank in File, so old button 3 has to move elsewhere.
-RankInFileDB.buttons[3] = { family = "Frost Armor", top = true }
+RankInFileCharDB.buttons[3] = { family = "Frost Armor", top = true }
 events.scripts.OnEvent(events, "SPELLS_CHANGED")
 local LEGACY_FROST = "#showtooltip Frostbolt(Rank 2)\n/click [btn:2] RankFlyoutButton3 RightButton; RankFlyoutButton3"
 -- Real macro indices are contiguous: account 1.., character 121..
@@ -571,20 +599,20 @@ RankFlyoutHeader = nil
 -- In combat it waits for combat to end.
 inCombat = true
 ns.MigrateFromRankFlyout()
-check(macros[121].body == LEGACY_FROST and RankInFileDB.buttons[1] == nil, "nothing moves in combat")
+check(macros[121].body == LEGACY_FROST and RankInFileCharDB.buttons[1] == nil, "nothing moves in combat")
 inCombat = false
 events.scripts.OnEvent(events, "PLAYER_REGEN_ENABLED")
 
 local fb = ns.GetButton(1)
-check(RankInFileDB.buttons[1] and RankInFileDB.buttons[1].family == "Frostbolt", "old button 3 moves to a free button (1)")
-check(fb and fb:GetAttribute("spell") == 205 and RankInFileDB.buttons[1].top == false,
+check(RankInFileCharDB.buttons[1] and RankInFileCharDB.buttons[1].family == "Frostbolt", "old button 3 moves to a free button (1)")
+check(fb and fb:GetAttribute("spell") == 205 and RankInFileCharDB.buttons[1].top == false,
 	"its old rank (Rank 2) is kept, not the highest")
 check(macros[121].body == canonical(1, "Rank 2"), "old macro now clicks the new button, in the same macro slot")
 check(macros[121].icon == 134400, "moved macro keeps the question-mark icon so #showtooltip picks it")
-check(RankInFileDB.buttons[5] and RankInFileDB.buttons[5].family == "Fireball"
+check(RankInFileCharDB.buttons[5] and RankInFileCharDB.buttons[5].family == "Fireball"
 	and macros[122].body:find("RankInFileButton5 RightButton; RankInFileButton5", 1, true),
 	"a single-rank spell keeps its old number when free")
-check(RankInFileDB.buttons[3].family == "Frost Armor", "the existing button 3 is untouched")
+check(RankInFileCharDB.buttons[3].family == "Frost Armor", "the existing button 3 is untouched")
 check(macros[1].body == "#showtooltip\n/cast Frostbolt", "unrelated macros untouched")
 check(bindings["F"] == "CLICK RankInFileButton1:LeftButton" and savedBindingSet == 2,
 	"key binding follows its macro to button 1 and is saved")
@@ -601,35 +629,180 @@ local before = #printed
 events.scripts.OnEvent(events, "UPDATE_MACROS")
 check(#printed == before and macros[121].body == canonical(1, "Rank 2"), "running again is harmless")
 
--- Another character (macros load after login): its macros move too. Its old
--- Frostbolt button lands on the existing Frostbolt button, so two macros click it.
-playerGUID = "Player-B"
-macros[2] = { name = "Rank 1", icon = 134400,
-	body = "#showtooltip Frostbolt(Rank 1)\n/click [btn:2] RankFlyoutButton7 RightButton; RankFlyoutButton7" }
-macros[123] = { name = "Frost Armor", icon = 134400,
-	body = "#showtooltip Frost Armor\n/click [btn:2] RankFlyoutButton2 RightButton; RankFlyoutButton2" }
-macros[124] = { name = "Old", icon = 134400, body = "#showtooltip\n/click [btn:2] RankFlyoutButton9 RightButton; RankFlyoutButton9" }
+-- Another character, B: its own buttons, none of A's. Its macros load after
+-- login and move to its own buttons, keeping their old numbers.
+local charA, charB = RankInFileCharDB, {}
+LogInAs(charB, "Player-B")
+check(next(charB.buttons) == nil and ns.GetButton(1) == nil, "a new character starts with its own empty set, not A's")
+macros[2] = { name = "Rank 1", icon = 134400, body = legacy("Frostbolt(Rank 1)", 7) } -- an account macro
+macros[121] = { name = "Frost Armor", icon = 134400, body = legacy("Frost Armor", 2) }
+macros[122] = { name = "Old", icon = 134400, body = "#showtooltip\n/click [btn:2] RankFlyoutButton9 RightButton; RankFlyoutButton9" }
+macros[123] = { name = "Rank 1", icon = 134400, body = legacy("Frostbolt(Rank 1)", 7) } -- a second macro for old button 7
 events.scripts.OnEvent(events, "UPDATE_MACROS")
-events.scripts.OnEvent(events, "UPDATE_MACROS")
-check(macros[2].body == canonical(1, "Rank 2") and macros[2].name == "Rank 2",
-	"second character's macro joins the existing button and is brought in step")
-check(macros[123].body:find("RankInFileButton3 RightButton; RankInFileButton3", 1, true), "matched by spell to button 3")
-check(RankInFileDB.movedButtons["Player-A"][3] == 1 and RankInFileDB.movedButtons["Player-B"][7] == 1
-	and RankInFileDB.movedButtons["Player-B"][2] == 3, "moves remembered per character")
-check(macros[124].body:find("RankFlyoutButton9", 1, true) and count("couldn't be moved") == 1,
+local fb7 = ns.GetButton(7)
+check(fb7 and fb7:GetAttribute("spell") == 116 and macros[2].body == canonical(7, "Rank 1")
+	and macros[123].body == canonical(7, "Rank 1"), "B's Frostbolt keeps its old number and its own rank (Rank 1)")
+check(macros[121].body:find("RankInFileButton2 RightButton; RankInFileButton2", 1, true), "B's Frost Armor keeps number 2")
+check(charB.moved[7] == 7 and charB.moved[2] == 2 and charA.moved[3] == 1, "moves remembered per character")
+check(macros[122].body:find("RankFlyoutButton9", 1, true) and count("couldn't be moved") == 1,
 	"an unreadable old macro is left alone, and the player is told once")
 bindings["H"] = "CLICK RankFlyoutButton7:LeftButton"
 events.scripts.OnEvent(events, "UPDATE_BINDINGS")
-check(bindings["H"] == "CLICK RankInFileButton1:LeftButton", "second character's binding follows its own move")
+check(bindings["H"] == "CLICK RankInFileButton7:LeftButton", "B's key binding follows its own move")
 
--- Both macros on button 1 follow a rank change, and both go when it is removed.
-fb:SetAttribute("spell", 837)
-check(macros[121].name == "Rank 3" and macros[2].name == "Rank 3", "every macro on a button follows rank changes")
-ns.RemoveButton(1)
-check(macros[121] == nil and macros[2] == nil and macros[123] ~= nil, "removing a button deletes all its macros")
-playerGUID = "Player-A"
+-- Both macros on button 7 follow a rank change.
+fb7:SetAttribute("spell", 837)
+check(macros[2].name == "Rank 3" and macros[123].name == "Rank 3", "every macro on a button follows rank changes")
 
-__RESULT = ("%d passed, %d failed"):format(passed, failed)
+-- The two macros sit in two bar slots. Out of combat, right-clicking either
+-- opens the menu beside it; in combat the menu stays where it was.
+do
+	ActionButton6 = NewFrame("CheckButton", "ActionButton6")
+	ActionButton6.action = 6
+	barSlots[5], barSlots[6] = 2, 123
+	events.scripts.OnEvent(events, "ACTIONBAR_SLOT_CHANGED", 6)
+	check(fb7.flyout.anchor == ActionButton5, "the menu waits beside the first slot holding the macro")
+	local function rightClick() for _, h in ipairs(fb7.hooks.PreClick or {}) do h(fb7, "RightButton") end end
+	ActionButton6.IsMouseOver = function() return true end
+	rightClick()
+	check(fb7.flyout.anchor == ActionButton6, "right-clicking the other slot opens the menu beside it")
+	ActionButton6.IsMouseOver, ActionButton5.IsMouseOver = nil, function() return true end
+	inCombat = true
+	rightClick()
+	check(fb7.flyout.anchor == ActionButton6, "in combat the menu stays where it was")
+	inCombat = false
+	rightClick()
+	check(fb7.flyout.anchor == ActionButton5, "out of combat it follows the clicked slot again")
+	ActionButton5.IsMouseOver = nil
+	barSlots[5], barSlots[6] = nil, nil
+end
+
+ns.RemoveButton(7)
+check(macros[2] == nil and macros[123] == nil and macros[121] ~= nil, "removing a button deletes all its macros")
+
+-- Back on A: its buttons and chosen ranks are as A left them.
+LogInAs(charA, "Player-A")
+check(ns.GetButton(1):GetAttribute("spell") == 205 and charA.buttons[1].top == false
+	and charA.buttons[5].family == "Fireball" and charA.buttons[7] == nil,
+	"A's buttons and ranks are untouched by B")
+
+-- A third character, C: brackets in a spell's name, two old buttons for one
+-- spell, and key bindings that load before the macros do.
+book[#book + 1] = { name = "Faerie Fire (Feral)", actionID = 16857, sub = "Rank 1" }
+book[#book + 1] = { name = "Faerie Fire (Feral)", actionID = 17390, sub = "Rank 2" }
+index()
+LogInAs({}, "Player-C", nil, {
+	J = "CLICK RankFlyoutButton11:LeftButton", -- old button 11 had no macro
+	K = "CLICK RankFlyoutButton6:LeftButton",
+})
+check(bindings["K"] == "CLICK RankFlyoutButton6:LeftButton", "a key binding waits for its macro to move")
+macros[121] = { name = "Rank 1", icon = 134400, body = legacy("Faerie Fire (Feral)(Rank 1)", 4) }
+macros[122] = { name = "Rank 1", icon = 134400, body = legacy("Frostbolt(Rank 1)", 6) }
+macros[123] = { name = "Rank 3", icon = 134400, body = legacy("Frostbolt(Rank 3)", 8) }
+macros[124] = { name = "Faerie Fire", icon = 134400, body = legacy("Faerie Fire (Feral)", 10) }
+events.scripts.OnEvent(events, "UPDATE_MACROS")
+local b4, b6, b8 = ns.GetButton(4), ns.GetButton(6), ns.GetButton(8)
+check(RankInFileCharDB.buttons[4] and RankInFileCharDB.buttons[4].family == "Faerie Fire (Feral)"
+	and b4:GetAttribute("spell") == 16857, "a spell with brackets in its name keeps them, and its rank")
+check(RankInFileCharDB.buttons[10] and RankInFileCharDB.buttons[10].family == "Faerie Fire (Feral)",
+	"a bracketed spell name with no rank is read whole")
+check(b6 and b8 and b6:GetAttribute("spell") == 116 and b8:GetAttribute("spell") == 837,
+	"two old buttons for one spell stay apart, each with its own rank")
+check(bindings["K"] == "CLICK RankInFileButton6:LeftButton", "the waiting key binding moves with its macro")
+check(bindings["J"] == "CLICK RankFlyoutButton11:LeftButton", "a key on an old button with no macro is left alone")
+
+-- While the spellbook doesn't list a button's spell (say it is still loading),
+-- the button's chosen rank is kept.
+do
+	local saved = {}
+	for i = #book, 1, -1 do
+		if book[i].name == "Frostbolt" then table.insert(saved, 1, table.remove(book, i)) end
+	end
+	index()
+	events.scripts.OnEvent(events, "SPELLS_CHANGED")
+	check(RankInFileCharDB.buttons[6].spellID == 116 and RankInFileCharDB.buttons[6].top == false,
+		"a spellbook without the spell keeps the chosen rank")
+	for _, s in ipairs(saved) do book[#book + 1] = s end
+	index()
+	events.scripts.OnEvent(events, "SPELLS_CHANGED")
+	check(b6:GetAttribute("spell") == 116, "once the spell is back, the chosen rank is still held")
+end
+
+-- If WoW stores a macro slightly differently from what was written, syncing
+-- edits each macro once rather than looping.
+do
+	local realEdit, edits = EditMacro, 0
+	EditMacro = function(i, name, icon, body) edits = edits + 1; return realEdit(i, name .. "~", icon, body) end
+	b6:SetAttribute("spell", 205)
+	EditMacro = realEdit
+	check(edits == 1, "a macro WoW stores differently is edited once per sync, not repeatedly (" .. edits .. ")")
+end
+
+-- Macro names are cut to 16 bytes without splitting a character.
+do
+	local cyr = ("\208\155"):rep(7) .. " " .. ("\209\129"):rep(6) -- 7 letters, space, 6 letters
+	book[#book + 1] = { name = cyr, actionID = 4242, sub = "" }
+	index()
+	pickedUp = nil
+	ns.PickUpSpell(4242)
+	check(pickedUp and macros[pickedUp] and macros[pickedUp].name == ("\208\155"):rep(7) .. " ",
+		"a long non-English name is cut between letters")
+end
+
+---------------------------------------------------------------- buttons from 0.4.0 (one set for the account)
+do
+	RankInFileDB.buttons = {
+		[1] = { family = "Frostbolt", spellID = 205, top = false, point = { "CENTER", "CENTER", 5, 6 } },
+		[2] = { family = "Fireball", top = true },
+		[4] = { family = "Frost Armor", top = true },
+	}
+	RankInFileDB.movedButtons = { ["Player-E"] = { [3] = 2 } }
+	local charD, charE = {}, {}
+	LogInAs(charD, "Player-D")
+	local shared = RankInFileDB.shared040
+	check(RankInFileDB.buttons == nil and shared and shared[1].family == "Frostbolt",
+		"0.4.0's account-wide buttons are kept aside for handing out")
+	check(charD.buttons[1] and charD.buttons[2] and charD.buttons[4] and ns.GetButton(1):GetAttribute("spell") == 205,
+		"the first character to log in takes them all, with their ranks")
+	check(charD.buttons[1] ~= shared[1] and charD.buttons[1].point ~= shared[1].point,
+		"it takes copies, so its changes stay its own")
+
+	LogInAs(charE, "Player-E", {
+		[121] = { name = "Fireball", icon = 134400,
+			body = "#showtooltip Fireball\n/click [btn:2] RankInFileButton2 RightButton; RankInFileButton2" },
+	}, {
+		L = "CLICK RankInFileButton4:LeftButton",
+		M = "CLICK RankFlyoutButton3:LeftButton", -- moved to button 2 under 0.4.0, but loaded late
+	})
+	check(charE.buttons[2] and charE.buttons[4] and charE.buttons[1] == nil,
+		"another character takes only the buttons its macros and key bindings click")
+	check(charE.moved and charE.moved[3] == 2 and RankInFileDB.movedButtons == nil,
+		"its 0.4.0 Rank Flyout moves come along")
+	check(bindings["M"] == "CLICK RankInFileButton2:LeftButton", "so a late Rank Flyout key binding still follows them")
+	ns.RemoveButton(4)
+	events.scripts.OnEvent(events, "UPDATE_BINDINGS")
+	check(charE.buttons[4] == nil, "a button it removes isn't taken back")
+
+	-- A rebuild draws each button once (not again through the attribute change).
+	local realCooldown, calls = C_Spell.GetSpellCooldown, 0
+	C_Spell.GetSpellCooldown = function(id) calls = calls + 1; return realCooldown(id) end
+	events.scripts.OnEvent(events, "SPELLS_CHANGED")
+	C_Spell.GetSpellCooldown = realCooldown
+	check(calls == 1, "a rebuild draws each button once (" .. calls .. ")")
+end
+LogInAs(charA, "Player-A")
+
+-- A burst of macro updates (a rebuild edits several macros) gets one look.
+do
+	local realAfter, queued = C_Timer.After, {}
+	C_Timer.After = function(_, fn) queued[#queued + 1] = fn end
+	for _ = 1, 5 do events.scripts.OnEvent(events, "UPDATE_MACROS") end
+	C_Timer.After = realAfter
+	check(#queued == 2, "a burst of macro updates is checked once, and anchored once (" .. #queued .. " timers)")
+	for _, fn in ipairs(queued) do fn() end
+end
+
+__RESULT =("%d passed, %d failed"):format(passed, failed)
 __FAILED = failed
 
 out("smoke: " .. __RESULT)

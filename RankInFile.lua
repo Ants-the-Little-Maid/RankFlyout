@@ -33,7 +33,8 @@ local SPELL_ITEM = Enum.SpellBookItemType.Spell
 local MAX_ACCOUNT_MACROS = Constants.MacroConsts.MAX_ACCOUNT_MACROS
 local MAX_CHARACTER_MACROS = Constants.MacroConsts.MAX_CHARACTER_MACROS
 
-local db
+local db               -- account-wide settings (RankInFileDB)
+local charDB           -- this character's buttons (RankInFileCharDB)
 local buttons = {}      -- [index] = main button
 local pending = {}      -- work deferred until combat ends: rebuild, macros, anchors
 
@@ -41,6 +42,19 @@ local function Print(msg)
 	print("|cff66ccffRank in File:|r " .. msg)
 end
 ns.Print = Print
+
+local function Plural(n, word) return ("%d %s%s"):format(n, word, n == 1 and "" or "s") end
+
+-- Cuts s to at most n bytes without splitting a UTF-8 character.
+local function CutUTF8(s, n)
+	if #s <= n then return s end
+	while n > 0 do
+		local byte = s:byte(n + 1)
+		if byte < 0x80 or byte >= 0xC0 then break end -- not a continuation byte
+		n = n - 1
+	end
+	return s:sub(1, n)
+end
 ns.MAX_BUTTONS = MAX_BUTTONS
 
 -- Other files (picker, minimap) listen for changes to buttons or the spellbook.
@@ -148,7 +162,7 @@ local function FindMacro(index)
 end
 
 local function MacroContent(btn)
-	local cfg = db.buttons[btn.index]
+	local cfg = charDB.buttons[btn.index]
 	local family = cfg and cfg.family or ""
 	local entry = CurrentEntry(btn)
 	local show = family
@@ -158,7 +172,7 @@ local function MacroContent(btn)
 	-- The macro name is shown on the bar slot, so use the rank ("Rank 3").
 	local name = (entry and entry.sub ~= "" and entry.sub) or family
 	if name == "" then name = "Rank in File" end
-	name = name:sub(1, 16)
+	name = CutUTF8(name, 16)
 	local body = ("#showtooltip %s\n/click [btn:2] %s%d RightButton; %s%d")
 		:format(show, BUTTON_PREFIX, btn.index, BUTTON_PREFIX, btn.index)
 	return name, body
@@ -175,8 +189,14 @@ local function SyncMacro(btn, create)
 	local tag = MacroTag(btn.index)
 	-- Usually one macro clicks each button, but a macro moved over from Rank
 	-- Flyout can make a second one; keep them all in step. EditMacro can re-sort
-	-- macros by name, so search again after each edit.
-	for _ = 1, MAX_MACROS do
+	-- macros by name, so search again after each edit, but edit no more times
+	-- than there are macros: if WoW stores a name or body slightly differently
+	-- from what was written, it would otherwise look stale forever.
+	local tagged = 0
+	ForEachMacro(function(_, _, _, oldBody)
+		if oldBody:find(tag, 1, true) then tagged = tagged + 1 end
+	end)
+	for _ = 1, tagged do
 		local stale = ForEachMacro(function(_, oldName, _, oldBody)
 			return oldBody:find(tag, 1, true) ~= nil and (oldName ~= name or oldBody ~= body)
 		end)
@@ -234,23 +254,28 @@ end
 
 -- GetActionInfo on a macro slot returns the macro index, or (subType "spell")
 -- the spell the macro shows. Accept either, checking the slot's name too.
-local function FindBarButton(btn)
-	local macroIndex = FindMacro(btn.index)
-	if not macroIndex then return nil end
-	local macroName = GetMacroInfo(macroIndex)
+-- Any of the button's macros counts. With underMouse, only the slot under the
+-- mouse pointer.
+local function FindBarButton(btn, underMouse)
+	local tag, macroIDs, macroNames = MacroTag(btn.index), {}, {}
+	ForEachMacro(function(i, name, _, body)
+		if body:find(tag, 1, true) then macroIDs[i], macroNames[name] = true, true end
+	end)
+	if not next(macroIDs) then return nil end
 	local rankIDs = {}
 	for _, entry in ipairs(btn.ranks or {}) do rankIDs[entry.spellID] = true end
 
 	for _, frameName in ipairs(BAR_BUTTONS) do
 		local frame = _G[frameName]
-		if frame and frame:IsVisible() then
+		if frame and frame:IsVisible() and not (underMouse and not frame:IsMouseOver()) then
 			local slot = SlotOf(frame)
 			if slot then
 				local kind, id, subType = GetActionInfo(slot)
 				if kind == "macro" then
 					if subType == "spell" then
-						if rankIDs[id] and GetActionText(slot) == macroName then return frame end
-					elseif id == macroIndex then
+						local text = GetActionText(slot)
+						if rankIDs[id] and text and macroNames[text] then return frame end
+					elseif macroIDs[id] then
 						return frame
 					end
 				end
@@ -468,14 +493,19 @@ local function ShowSpellTooltip(owner, spellID, extraLines)
 end
 
 local function SaveChoice(btn, spellID)
-	local cfg = db.buttons[btn.index]
-	if not cfg then return end
+	local cfg = charDB.buttons[btn.index]
+	-- While the spellbook doesn't list this spell (say it is still loading)
+	-- there are no ranks to choose from, so keep the saved choice.
+	if not cfg or not (btn.ranks and #btn.ranks > 0) then return end
 	cfg.spellID = spellID
 	local ranks = btn.ranks
 	cfg.top = ranks and #ranks > 0 and ranks[#ranks].spellID == spellID or false
 end
 
-local AssignSpell -- forward declaration
+local AssignSpell, AnchorFlyout -- forward declarations
+-- True while Rebuild sets the spell attribute; Rebuild then saves, redraws and
+-- syncs the macro once itself instead of through OnAttributeChanged.
+local rebuilding = false
 
 local function CreateRankButton(main)
 	local i = #main.rankButtons + 1
@@ -548,11 +578,22 @@ local function CreateMainButton(index)
 	SecureHandlerWrapScript(b, "OnClick", header, MAIN_PRECLICK)
 
 	b:HookScript("OnAttributeChanged", function(self, name, value)
-		if name == "spell" then
+		if name == "spell" and not rebuilding then
 			SaveChoice(self, tonumber(value))
 			UpdateMain(self)
 			SyncMacro(self, false)
 		end
+	end)
+
+	-- The macro can sit in more than one bar slot. Out of combat, right-clicking
+	-- one opens the menu beside that slot (or beside the floating button when
+	-- that is what was clicked). In combat the menu can't be moved, so it opens
+	-- where it was last placed. Runs before the secure OnClick shows the menu.
+	b:HookScript("PreClick", function(self, button)
+		if button ~= "RightButton" or InCombatLockdown() then return end
+		local target = FindBarButton(self, true)
+			or (db.float ~= false and self:IsMouseOver() and self) or nil
+		if target and target ~= self.anchoredTo then AnchorFlyout(self, target) end
 	end)
 
 	b:SetScript("OnDragStart", function(self)
@@ -562,14 +603,14 @@ local function CreateMainButton(index)
 			return
 		end
 		-- Plain drag: pick up this button's macro to drop on an action bar.
-		if not (db.buttons[self.index] and db.buttons[self.index].family) then return end
+		if not (charDB.buttons[self.index] and charDB.buttons[self.index].family) then return end
 		local m = SyncMacro(self, true)
 		if m then PickupMacro(m) end
 	end)
 	b:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		local point, _, relPoint, x, y = self:GetPoint(1)
-		local cfg = db.buttons[self.index]
+		local cfg = charDB.buttons[self.index]
 		if cfg then cfg.point = { point, relPoint, x, y } end
 	end)
 	b:SetScript("OnReceiveDrag", function(self)
@@ -609,13 +650,14 @@ local DIRECTIONS = {
 
 -- The menu opens beside the bar slot holding this button's macro if there is
 -- one on screen, otherwise beside the floating button.
-local function AnchorFlyout(b)
+-- target: where to open it (default: the first bar slot found, else the button).
+AnchorFlyout = function(b, target)
 	if InCombatLockdown() then
 		pending.anchors = true
 		return
 	end
 	local dir = DIRECTIONS[db.direction] or DIRECTIONS.UP
-	local target = FindBarButton(b) or b
+	target = target or FindBarButton(b) or b
 	b.flyout:ClearAllPoints()
 	b.flyout:SetPoint(dir.anchor, target, dir.rel, 0, 0)
 	b.flyout:SetScale(db.scale) -- parented to UIParent, so it needs its own scale
@@ -674,7 +716,7 @@ local function PlaceButton(b, cfg)
 end
 
 local function Rebuild(index)
-	local cfg = db.buttons[index]
+	local cfg = charDB.buttons[index]
 	local b = buttons[index]
 	if not cfg then
 		if b then
@@ -729,7 +771,9 @@ local function Rebuild(index)
 	b:Show()
 	LayoutFlyout(b, count)
 
+	rebuilding = true
 	b:SetAttribute("spell", chosen)
+	rebuilding = false
 	SaveChoice(b, chosen)
 	UpdateMain(b)
 	SyncMacro(b, false)
@@ -749,7 +793,7 @@ end
 
 local function AnchorAll()
 	for i = 1, MAX_BUTTONS do
-		if buttons[i] and db.buttons[i] then AnchorFlyout(buttons[i]) end
+		if buttons[i] and charDB.buttons[i] then AnchorFlyout(buttons[i]) end
 	end
 end
 
@@ -774,8 +818,8 @@ AssignSpell = function(index, spellID, quiet)
 		Print("couldn't find that spell.")
 		return false
 	end
-	local cfg = db.buttons[index] or {}
-	db.buttons[index] = cfg
+	local cfg = charDB.buttons[index] or {}
+	charDB.buttons[index] = cfg
 	cfg.family = name
 	cfg.spellID = nil
 	cfg.top = true
@@ -784,8 +828,8 @@ AssignSpell = function(index, spellID, quiet)
 	if n == 0 then
 		Print(name .. " isn't in your spellbook.")
 	elseif not quiet then
-		Print(("button %d now holds %s (%d rank%s known). Drag it onto an action bar to use it there.")
-			:format(index, name, n, n == 1 and "" or "s"))
+		Print(("button %d now holds %s (%s known). Drag it onto an action bar to use it there.")
+			:format(index, name, Plural(n, "rank")))
 	end
 	return n > 0
 end
@@ -796,7 +840,7 @@ end
 
 local function FreeIndex()
 	for i = 1, MAX_BUTTONS do
-		if not db.buttons[i] then return i end
+		if not charDB.buttons[i] then return i end
 	end
 end
 
@@ -818,7 +862,7 @@ function ns.GetButton(index) return buttons[index] end
 -- Index of the button holding this spell family, if any.
 function ns.FindFamily(name)
 	for i = 1, MAX_BUTTONS do
-		local cfg = db.buttons[i]
+		local cfg = charDB.buttons[i]
 		if cfg and cfg.family == name then return i end
 	end
 end
@@ -839,7 +883,7 @@ function ns.PickUpSpell(spellID)
 			return
 		end
 		if not AssignSpell(index, spellID, true) then
-			db.buttons[index] = nil
+			charDB.buttons[index] = nil
 			Rebuild(index)
 			return
 		end
@@ -856,9 +900,13 @@ function ns.RemoveButton(n)
 		Print("can't change buttons in combat.")
 		return false
 	end
-	if not db.buttons[n] then return false end
+	if not charDB.buttons[n] then return false end
 	DeleteButtonMacro(n)
-	db.buttons[n] = nil
+	charDB.buttons[n] = nil
+	if db.shared040 then -- don't take 0.4.0's button n back (AdoptShared040)
+		charDB.declined040 = charDB.declined040 or {}
+		charDB.declined040[n] = true
+	end
 	Rebuild(n)
 	ns.Changed()
 	return true
@@ -927,7 +975,7 @@ local function HandleSlash(msg)
 			end
 			AssignSpell(index, spellID)
 		else
-			db.buttons[index] = {}
+			charDB.buttons[index] = {}
 			Rebuild(index)
 			Print(("button %d added. Drop a spell from your spellbook on it."):format(index))
 		end
@@ -935,7 +983,7 @@ local function HandleSlash(msg)
 		local n, name = rest:match("^(%d+)%s+(.+)$")
 		n = tonumber(n)
 		local spellID = name and FindSpellID(name)
-		if not n or not db.buttons[n] then
+		if not n or not charDB.buttons[n] then
 			Print("usage: /rf set <button number> <spell name>")
 		elseif not spellID then
 			Print("couldn't find that spell.")
@@ -962,7 +1010,7 @@ local function HandleSlash(msg)
 	elseif cmd == "macro" then
 		local n = tonumber(rest)
 		local b = n and buttons[n]
-		if not (b and db.buttons[n] and db.buttons[n].family) then
+		if not (b and charDB.buttons[n] and charDB.buttons[n].family) then
 			Print("usage: /rf macro <button number> (the button needs a spell)")
 			return
 		end
@@ -982,7 +1030,7 @@ local function HandleSlash(msg)
 	elseif cmd == "list" then
 		local any = false
 		for i = 1, MAX_BUTTONS do
-			local cfg = db.buttons[i]
+			local cfg = charDB.buttons[i]
 			if cfg then
 				any = true
 				local b = buttons[i]
@@ -1015,7 +1063,7 @@ local function HandleSlash(msg)
 			Print("usage: /rf scale <0.5 to 2>")
 		end
 	elseif cmd == "reset" then
-		for _, cfg in pairs(db.buttons) do cfg.point = nil end
+		for _, cfg in pairs(charDB.buttons) do cfg.point = nil end
 		db.float = true
 		RebuildAll()
 	else
@@ -1043,23 +1091,22 @@ end
 --
 -- There is no "done" flag. A moved macro no longer names RankFlyoutButton and a
 -- moved key no longer points at it, so running again finds nothing. That lets
--- it run on every character (most macros are per-character, while the saved
--- settings are account-wide) and whenever macros or bindings finish loading,
--- which can be after PLAYER_LOGIN.
+-- it run whenever macros or bindings arrive, which can be after PLAYER_LOGIN.
 
 local LEGACY_BUTTON = "RankFlyoutButton"
 local warnedOldLoaded, warnedSkipped = false, false
 
--- "#showtooltip Frostbolt(Rank 3)" -> "Frostbolt", "Rank 3"
+-- "#showtooltip Frostbolt(Rank 3)" -> "Frostbolt", "Rank 3". The rank is the
+-- last bracket, written straight after the name, so brackets that belong to a
+-- spell's name stay with it: "Faerie Fire (Feral)(Rank 2)" -> "Faerie Fire
+-- (Feral)", "Rank 2", and "Faerie Fire (Feral)" -> "Faerie Fire (Feral)", "".
 local function ParseShowTooltip(body)
 	local show = body:match("^#showtooltip ([^\n]+)")
 	if not show then return nil end
-	local family, sub = show:match("^(.-)%((.*)%)$")
-	if family and family ~= "" then return family, sub end
+	local family, sub = show:match("^(.*[^ ])%(([^()]*)%)$")
+	if family then return family, sub end
 	return show, ""
 end
-
-local function Plural(n, word) return ("%d %s%s"):format(n, word, n == 1 and "" or "s") end
 
 -- Returns true if it moved any macro (the caller then rebuilds, which also
 -- brings a moved macro in step with a button that already existed).
@@ -1077,11 +1124,9 @@ local function MigrateFromRankFlyout()
 		return false
 	end
 
-	-- Which new button each old button number went to, per character, so key
-	-- bindings that load after the macros still follow them.
-	db.movedButtons = db.movedButtons or {}
-	local who = UnitGUID("player") or "?"
-	local remap = db.movedButtons[who] or {}
+	-- Which new button each old button number went to, so a second macro for the
+	-- same old button, and key bindings that load later, follow it.
+	local remap = charDB.moved or {}
 
 	-- Collect first. The rewrite keeps each macro's name, so indices don't move.
 	local legacy = {}
@@ -1093,11 +1138,14 @@ local function MigrateFromRankFlyout()
 	local movedMacros, skipped = 0, 0
 	for _, m in ipairs(legacy) do
 		local family, sub = ParseShowTooltip(m.body)
-		local oldFree = m.old <= MAX_BUTTONS and not db.buttons[m.old]
-		local index = family and (ns.FindFamily(family) or (oldFree and m.old) or FreeIndex())
+		local oldFree = m.old <= MAX_BUTTONS and not charDB.buttons[m.old]
+		-- Same old button as before (a second macro for it), else the old number
+		-- if free, else any free one. Two old buttons for one spell (say Rank 1
+		-- and Rank 4) stay two buttons.
+		local index = family and (remap[m.old] or (oldFree and m.old) or FreeIndex())
 		if index then
-			if not db.buttons[index] then
-				db.buttons[index] = { family = family, top = true, wantSub = sub ~= "" and sub or nil }
+			if not charDB.buttons[index] then
+				charDB.buttons[index] = { family = family, top = true, wantSub = sub ~= "" and sub or nil }
 			end
 			remap[m.old] = index
 			-- MACRO_ICON, not the icon GetMacroInfo reports: that can be the spell's
@@ -1108,13 +1156,16 @@ local function MigrateFromRankFlyout()
 			skipped = skipped + 1
 		end
 	end
-	if next(remap) then db.movedButtons[who] = remap end
+	if next(remap) then charDB.moved = remap end
 
+	-- Keys follow only old buttons whose macro has moved: the new button with the
+	-- same number may not exist, or may hold another spell. Keys that load before
+	-- the macros wait for them (this runs again on UPDATE_MACROS).
 	local movedKeys = 0
 	if GetBindingKey and SetBinding then
-		for old = 1, MAX_BUTTONS do
+		for old, index in pairs(remap) do
 			local oldAction = ("CLICK %s%d:LeftButton"):format(LEGACY_BUTTON, old)
-			local newAction = ("CLICK %s%d:LeftButton"):format(BUTTON_PREFIX, remap[old] or old)
+			local newAction = ("CLICK %s%d:LeftButton"):format(BUTTON_PREFIX, index)
 			for _, key in ipairs({ GetBindingKey(oldAction) }) do
 				SetBinding(key, newAction)
 				movedKeys = movedKeys + 1
@@ -1143,20 +1194,88 @@ end
 ns.MigrateFromRankFlyout = MigrateFromRankFlyout
 
 -------------------------------------------------------------------------------
+-- Buttons from 0.4.0, which saved one set for the whole account
+-------------------------------------------------------------------------------
+-- From 0.4.1 each character has its own buttons, so one character's spells,
+-- ranks and removals no longer reach the others. 0.4.0's shared set is kept in
+-- the account settings (db.shared040). The first character to log in with
+-- 0.4.1 takes all of it. Each other character takes the buttons its own bar
+-- macros or key bindings click, so its bars keep working. A button a character
+-- removes is not taken again (charDB.declined040).
+
+local function CopyButton(cfg)
+	local copy = {}
+	for k, v in pairs(cfg) do copy[k] = v end
+	if cfg.point then copy.point = { cfg.point[1], cfg.point[2], cfg.point[3], cfg.point[4] } end
+	return copy
+end
+
+-- Returns true if it took any button.
+local function AdoptShared040()
+	local shared = db.shared040
+	if not shared then return false end
+	local declined = charDB.declined040 or {}
+	local took = false
+	local function take(n)
+		if shared[n] and not charDB.buttons[n] and not declined[n] then
+			charDB.buttons[n] = CopyButton(shared[n])
+			took = true
+		end
+	end
+	if not db.shared040Taken then
+		db.shared040Taken = true
+		for n = 1, MAX_BUTTONS do take(n) end
+		return took
+	end
+	local tag = BUTTON_PREFIX .. "(%d+) RightButton;"
+	ForEachMacro(function(_, _, _, body)
+		for n in body:gmatch(tag) do take(tonumber(n)) end
+	end)
+	if GetBindingKey then
+		for n = 1, MAX_BUTTONS do
+			if GetBindingKey(("CLICK %s%d:LeftButton"):format(BUTTON_PREFIX, n)) then take(n) end
+		end
+	end
+	return took
+end
+
+-- Takes over buttons from 0.4.0 and Rank Flyout. Returns true if any button was
+-- added (the caller rebuilds).
+local function CatchUp()
+	-- 0.4.0 kept each character's Rank Flyout moves in the account settings.
+	local who = UnitGUID("player")
+	if who and db.movedButtons and db.movedButtons[who] then
+		charDB.moved = charDB.moved or db.movedButtons[who]
+		db.movedButtons[who] = nil
+		if not next(db.movedButtons) then db.movedButtons = nil end
+	end
+	-- 0.4.0's numbers first, so moved Rank Flyout macros take free ones.
+	local adopted = AdoptShared040()
+	local moved = MigrateFromRankFlyout()
+	return adopted or moved
+end
+
+-------------------------------------------------------------------------------
 -- Events
 -------------------------------------------------------------------------------
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 
--- Macros and key bindings can finish loading after PLAYER_LOGIN; their update
--- events give the move from Rank Flyout another look.
-local loggedIn = false
-local function MigrateLateData()
-	if loggedIn and MigrateFromRankFlyout() then
-		RebuildAll()
-		ns.Changed()
-	end
+-- Macros and key bindings can arrive in several batches after PLAYER_LOGIN
+-- (account and character ones load separately), so each batch gets a look for
+-- buttons to take over. One look per burst: a rebuild edits several macros, and
+-- each edit fires UPDATE_MACROS.
+local loggedIn, catchUpQueued = false, false
+local function QueueCatchUp()
+	if not loggedIn or catchUpQueued then return end
+	catchUpQueued = true
+	C_Timer.After(0.1, function()
+		catchUpQueued = false
+		if CatchUp() then
+			RebuildAll() -- each Rebuild also tells the picker and minimap menu
+		end
+	end)
 end
 
 local rangeElapsed = 0
@@ -1175,8 +1294,15 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		if arg1 ~= ADDON_NAME then return end
 		self:UnregisterEvent("ADDON_LOADED")
 		RankInFileDB = RankInFileDB or {}
-		db = RankInFileDB
-		db.buttons = db.buttons or {}
+		RankInFileCharDB = RankInFileCharDB or {}
+		db, charDB = RankInFileDB, RankInFileCharDB
+		-- 0.4.0 saved buttons for the whole account; they are handed out by
+		-- AdoptShared040.
+		if db.buttons then
+			if next(db.buttons) then db.shared040, db.shared040Taken = db.buttons, nil end
+			db.buttons = nil
+		end
+		charDB.buttons = charDB.buttons or {}
 		db.direction = db.direction or "UP"
 		db.scale = db.scale or 1
 		if db.locked == nil then db.locked = false end
@@ -1200,14 +1326,14 @@ events:SetScript("OnEvent", function(self, event, arg1)
 	elseif event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
 		if event == "PLAYER_LOGIN" then
 			loggedIn = true
-			MigrateFromRankFlyout()
+			CatchUp()
 		end
 		RebuildAll()
 		ns.Changed() -- the picker refreshes even if the rebuild waits for combat to end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if pending.migrate then
 			pending.migrate = nil
-			if MigrateFromRankFlyout() then pending.rebuild = true end
+			if CatchUp() then pending.rebuild = true end
 		end
 		if pending.rebuild then
 			pending.rebuild, pending.macros, pending.anchors = nil, nil, nil
@@ -1216,7 +1342,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 			if pending.macros then
 				pending.macros = nil
 				for i = 1, MAX_BUTTONS do
-					if buttons[i] and db.buttons[i] then SyncMacro(buttons[i], false) end
+					if buttons[i] and charDB.buttons[i] then SyncMacro(buttons[i], false) end
 				end
 			end
 			if pending.anchors then
@@ -1226,7 +1352,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		end
 	elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED"
 		or event == "UPDATE_MACROS" or event == "PLAYER_ENTERING_WORLD" then
-		if event == "UPDATE_MACROS" then MigrateLateData() end
+		if event == "UPDATE_MACROS" then QueueCatchUp() end
 		QueueAnchorAll()
 	elseif event == "SPELL_UPDATE_COOLDOWN" then
 		ForEachShown(function(b)
@@ -1234,7 +1360,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 			UpdateCooldown(b, spellID)
 		end)
 	elseif event == "UPDATE_BINDINGS" then
-		MigrateLateData()
+		QueueCatchUp()
 		ForEachShown(UpdateHotkey)
 	end
 end)

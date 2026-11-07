@@ -4,6 +4,7 @@
 ## Author: Ants
 ## Version: @project-version@
 ## SavedVariables: RankInFileDB
+## SavedVariablesPerCharacter: RankInFileCharDB
 
 RankInFile.lua
 Picker.lua
