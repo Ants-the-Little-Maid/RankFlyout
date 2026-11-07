@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2 (2026-11-07)
+
+- Coming from 0.4.0: each character now keeps the 0.4.0 buttons for spells it knows, plus any its bar macros or key bindings use. In 0.4.1 the first character to log in took every button, even one that couldn't cast them. Characters that already logged in with 0.4.1 keep what they have and pick up any missing buttons for their spells.
+- Rank in File now only makes, updates and deletes character macros. Account macros are shared by all your characters, while each character's buttons differ, so one character could rewrite or delete another's bar macro. With the character macro slots full, it asks you to free one instead of making an account macro.
+- The rank menu stays beside the bar slot you last right-clicked, instead of moving back to the first slot holding the macro whenever the bars change.
+- Removing a button forgets which old Rank Flyout button moved there, so a late Rank Flyout macro or key binding can't land on the spell that takes that number next.
+- Less repeated work once every 0.4.0 button has been taken or removed.
+
 ## 0.4.1 (2026-11-07)
 
 - **Buttons are now saved per character.** Each character has its own 12 buttons, with their own spells, ranks and positions, so a rank chosen or a button removed on one character no longer changes another's. Menu direction, scale, lock, floating buttons and the minimap button stay shared.

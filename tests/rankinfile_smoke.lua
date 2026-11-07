@@ -650,9 +650,11 @@ bindings["H"] = "CLICK RankFlyoutButton7:LeftButton"
 events.scripts.OnEvent(events, "UPDATE_BINDINGS")
 check(bindings["H"] == "CLICK RankInFileButton7:LeftButton", "B's key binding follows its own move")
 
--- Both macros on button 7 follow a rank change.
+-- The character macro follows a rank change. The account macro is shared by
+-- every character, whose button 7 differs, so it is left alone.
 fb7:SetAttribute("spell", 837)
-check(macros[2].name == "Rank 3" and macros[123].name == "Rank 3", "every macro on a button follows rank changes")
+check(macros[123].name == "Rank 3" and macros[2].name == "Rank 1",
+	"character macros follow rank changes; the shared account macro is left alone")
 
 -- The two macros sit in two bar slots. Out of combat, right-clicking either
 -- opens the menu beside it; in combat the menu stays where it was.
@@ -666,6 +668,8 @@ do
 	ActionButton6.IsMouseOver = function() return true end
 	rightClick()
 	check(fb7.flyout.anchor == ActionButton6, "right-clicking the other slot opens the menu beside it")
+	events.scripts.OnEvent(events, "ACTIONBAR_SLOT_CHANGED", 9)
+	check(fb7.flyout.anchor == ActionButton6, "a bar update leaves the menu beside the slot last right-clicked")
 	ActionButton6.IsMouseOver, ActionButton5.IsMouseOver = nil, function() return true end
 	inCombat = true
 	rightClick()
@@ -673,12 +677,19 @@ do
 	inCombat = false
 	rightClick()
 	check(fb7.flyout.anchor == ActionButton5, "out of combat it follows the clicked slot again")
-	ActionButton5.IsMouseOver = nil
-	barSlots[5], barSlots[6] = nil, nil
+	ActionButton5.IsMouseOver, ActionButton6.IsMouseOver = nil, function() return true end
+	rightClick()
+	barSlots[6] = nil
+	events.scripts.OnEvent(events, "ACTIONBAR_SLOT_CHANGED", 6)
+	check(fb7.flyout.anchor == ActionButton5, "once that slot no longer holds the macro, the menu goes back to the first")
+	ActionButton6.IsMouseOver = nil
+	barSlots[5] = nil
 end
 
 ns.RemoveButton(7)
-check(macros[2] == nil and macros[123] == nil and macros[121] ~= nil, "removing a button deletes all its macros")
+check(macros[123] == nil and macros[2] ~= nil and macros[121] ~= nil,
+	"removing a button deletes its character macros, not the shared account macro")
+check(charB.moved[7] == nil and charB.moved[2] == 2, "the removed button's old Rank Flyout number is forgotten")
 
 -- Back on A: its buttons and chosen ranks are as A left them.
 LogInAs(charA, "Player-A")
@@ -749,33 +760,63 @@ do
 		"a long non-English name is cut between letters")
 end
 
+-- With the character macro slots full, no account macro is made instead.
+do
+	local filled = {}
+	for i = 121, 150 do
+		if not macros[i] then macros[i] = { name = "x", icon = 1, body = "/say hi" }; filled[#filled + 1] = i end
+	end
+	local function accountMacros()
+		local n = 0
+		for i = 1, 120 do if macros[i] then n = n + 1 end end
+		return n
+	end
+	local before = accountMacros()
+	pickedUp = nil
+	ns.PickUpSpell(133)
+	check(pickedUp == nil and accountMacros() == before and count("character macro slots are full") == 1,
+		"with the character macro slots full, no account macro is made")
+	for _, i in ipairs(filled) do macros[i] = nil end
+end
+
 ---------------------------------------------------------------- buttons from 0.4.0 (one set for the account)
 do
 	RankInFileDB.buttons = {
 		[1] = { family = "Frostbolt", spellID = 205, top = false, point = { "CENTER", "CENTER", 5, 6 } },
 		[2] = { family = "Fireball", top = true },
-		[4] = { family = "Frost Armor", top = true },
+		[3] = { family = "Wrath", top = true }, -- spells these characters don't know
+		[4] = { family = "Healing Touch", top = true },
 	}
 	RankInFileDB.movedButtons = { ["Player-E"] = { [3] = 2 } }
+	RankInFileDB.shared040Taken = true -- left behind by 0.4.1
 	local charD, charE = {}, {}
+
+	-- D logs in before its spellbook has loaded.
+	local realLines = C_SpellBook.GetNumSpellBookSkillLines
+	C_SpellBook.GetNumSpellBookSkillLines = function() return 0 end
 	LogInAs(charD, "Player-D")
 	local shared = RankInFileDB.shared040
-	check(RankInFileDB.buttons == nil and shared and shared[1].family == "Frostbolt",
-		"0.4.0's account-wide buttons are kept aside for handing out")
-	check(charD.buttons[1] and charD.buttons[2] and charD.buttons[4] and ns.GetButton(1):GetAttribute("spell") == 205,
-		"the first character to log in takes them all, with their ranks")
+	check(RankInFileDB.buttons == nil and shared and shared[1].family == "Frostbolt"
+		and RankInFileDB.shared040Taken == nil, "0.4.0's account-wide buttons are kept aside for handing out")
+	check(next(charD.buttons) == nil, "nothing is taken by spell before the spellbook loads")
+	C_SpellBook.GetNumSpellBookSkillLines = realLines
+	events.scripts.OnEvent(events, "SPELLS_CHANGED")
+	check(charD.buttons[1] and charD.buttons[2] and ns.GetButton(1):GetAttribute("spell") == 205,
+		"once it loads, a character takes the 0.4.0 buttons for spells it knows, with their ranks")
+	check(charD.buttons[3] == nil and charD.buttons[4] == nil, "but not buttons for spells it doesn't know")
 	check(charD.buttons[1] ~= shared[1] and charD.buttons[1].point ~= shared[1].point,
 		"it takes copies, so its changes stay its own")
 
 	LogInAs(charE, "Player-E", {
-		[121] = { name = "Fireball", icon = 134400,
-			body = "#showtooltip Fireball\n/click [btn:2] RankInFileButton2 RightButton; RankInFileButton2" },
+		[121] = { name = "Wrath", icon = 134400,
+			body = "#showtooltip Wrath\n/click [btn:2] RankInFileButton3 RightButton; RankInFileButton3" },
 	}, {
 		L = "CLICK RankInFileButton4:LeftButton",
 		M = "CLICK RankFlyoutButton3:LeftButton", -- moved to button 2 under 0.4.0, but loaded late
 	})
-	check(charE.buttons[2] and charE.buttons[4] and charE.buttons[1] == nil,
-		"another character takes only the buttons its macros and key bindings click")
+	check(charE.buttons[1] and charE.buttons[2], "another character also takes the buttons for spells it knows")
+	check(charE.buttons[3] and charE.buttons[4],
+		"and the ones its macros and key bindings click, even for spells it hasn't learned")
 	check(charE.moved and charE.moved[3] == 2 and RankInFileDB.movedButtons == nil,
 		"its 0.4.0 Rank Flyout moves come along")
 	check(bindings["M"] == "CLICK RankInFileButton2:LeftButton", "so a late Rank Flyout key binding still follows them")
@@ -783,12 +824,21 @@ do
 	events.scripts.OnEvent(events, "UPDATE_BINDINGS")
 	check(charE.buttons[4] == nil, "a button it removes isn't taken back")
 
+	-- Every 0.4.0 button is now taken or removed: a catch-up reads the macros
+	-- once (for Rank Flyout ones), not again looking for 0.4.0 buttons.
+	local realInfo, reads = GetMacroInfo, 0
+	GetMacroInfo = function(i) reads = reads + 1; return realInfo(i) end
+	events.scripts.OnEvent(events, "UPDATE_BINDINGS")
+	GetMacroInfo = realInfo
+	local na, nc = GetNumMacros()
+	check(reads == na + nc, "once every 0.4.0 button is settled, it stops looking (" .. reads .. " macro reads)")
+
 	-- A rebuild draws each button once (not again through the attribute change).
 	local realCooldown, calls = C_Spell.GetSpellCooldown, 0
 	C_Spell.GetSpellCooldown = function(id) calls = calls + 1; return realCooldown(id) end
 	events.scripts.OnEvent(events, "SPELLS_CHANGED")
 	C_Spell.GetSpellCooldown = realCooldown
-	check(calls == 1, "a rebuild draws each button once (" .. calls .. ")")
+	check(calls == 2, "a rebuild draws each button with a known spell once (" .. calls .. ")")
 end
 LogInAs(charA, "Player-A")
 

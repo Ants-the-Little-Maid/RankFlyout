@@ -28,8 +28,8 @@ scale start fresh, and floating buttons start hidden (`/rf float on` shows them)
 ## Updating from 0.4.0
 
 0.4.0 saved one set of buttons for your whole account. From 0.4.1 each character has its own.
-The first character you log in with keeps all of 0.4.0's buttons. Each other character keeps
-the ones its bar macros and key bindings use. `/rf remove` clears any a character doesn't need.
+Each character keeps a copy of the 0.4.0 buttons for spells it knows, plus any its bar macros
+or key bindings use. `/rf remove` clears any a character doesn't need, and they don't come back.
 
 ## Using it
 
@@ -48,8 +48,11 @@ The bar slot shows the chosen rank's icon, tooltip, cooldown and range, and its 
 "Rank 3". If you swap ranks during combat, the cast changes straight away, but the slot's
 icon, label and tooltip catch up when combat ends (WoW blocks editing macros in combat).
 
-Each button uses one per-character macro (it falls back to an account macro if your 30
-character slots are full). `/rf remove` deletes it.
+Each button uses one character macro. If your 30 character macro slots are full, delete one
+first. `/rf remove` deletes it. Rank in File doesn't make or change account macros: they are
+shared by all your characters, and each character's buttons are different. An account macro
+from an older version still casts the chosen rank, but its icon and label don't follow rank
+changes; `/rf macro <n>` makes a character macro to replace it.
 
 Buttons are saved per character: each character has its own 12, with their own spells, ranks
 and positions. Menu direction, scale, lock, floating buttons and the minimap button are shared
@@ -91,7 +94,8 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
   shows, so a slot only matches on our macro index, or on one of our rank IDs plus our
   macro's name. When the macro is on more than one slot, a `PreClick` hook moves the menu
   beside the slot under the mouse before the secure `OnClick` shows it. That only works out
-  of combat; in combat the menu opens where it was last placed.
+  of combat; in combat the menu opens where it was last placed. It stays beside that slot
+  through bar updates while the slot still holds the macro.
 - "Hidden" floating buttons stay shown at alpha 0 with the mouse off, so `/click` and key
   bindings still reach them.
 - Each button is a `SecureActionButtonTemplate` button with `type = "spell"` and the rank's
@@ -115,8 +119,8 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
 | Check | Result |
 |---|---|
 | Lua 5.1 parse (luaparse 0.3.1), including the three secure snippets | Pass |
-| Smoke test `tests/rankinfile_smoke.lua` (fengari, stubbed API, including secret values and the move from Rank Flyout) | 137 of 137 passed (0.4.1) |
-| In the Forever client | 0.4.1 not yet run in the client |
+| Smoke test `tests/rankinfile_smoke.lua` (fengari, stubbed API, including secret values and the move from Rank Flyout) | 145 of 145 passed (0.4.2) |
+| In the Forever client | 0.4.2 not yet run in the client |
 
 Points to check in the client:
 
@@ -137,8 +141,8 @@ Points to check in the client:
 11. 0.4.0: with the old `RankFlyout` folder removed, logging in moves its bar macros (same
     slots, same rank) and key bindings, and prints what moved. Check a second character too. With it still enabled, a chat
     line asks you to disable it and nothing moves.
-12. 0.4.1: buttons are per character. Coming from 0.4.0, the first character keeps every button
-    and a second character keeps only the ones its bars use. A rank chosen on one character
-    doesn't change another's.
+12. 0.4.1/0.4.2: buttons are per character. Coming from 0.4.0, each character keeps the
+    buttons for spells it knows plus the ones its bars use, whichever logs in first. A rank
+    chosen on one character doesn't change another's.
 13. 0.4.1: with the same macro on two bar slots, right-clicking each opens the menu beside
     that slot (out of combat), and casting from either slot still works in combat.
