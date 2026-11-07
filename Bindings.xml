@@ -1,14 +1,14 @@
 <Bindings>
-	<Binding name="CLICK RankFlyoutButton1:LeftButton" header="RANKFLYOUT" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton2:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton3:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton4:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton5:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton6:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton7:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton8:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton9:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton10:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton11:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK RankFlyoutButton12:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton1:LeftButton" header="RANKINFILE" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton5:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton6:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton7:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton8:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton10:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton11:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK RankInFileButton12:LeftButton" category="ADDONS"/>
 </Bindings>

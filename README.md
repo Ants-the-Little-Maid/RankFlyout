@@ -1,4 +1,4 @@
-# Rank Flyout
+# Rank in File
 
 Action buttons for **WoW Forever** that hold one rank of a spell, with a pop-out menu for
 swapping ranks, including during combat.
@@ -8,7 +8,7 @@ swapping ranks, including during combat.
 Click the **minimap button** (book icon), or type `/rf spells`, to open the spell picker.
 It looks like the spellbook: one tab per spell school, two columns of spells, with pages.
 
-- **Click or drag a spell**: Rank Flyout makes its macro and puts it on your cursor. Click an
+- **Click or drag a spell**: Rank in File makes its macro and puts it on your cursor. Click an
   action bar slot to place it. Spells you've added get a green tick and their button number.
 - **Right-click** an added spell to remove it, along with its macro.
 - **Drop a spell** from Blizzard's spellbook or your bars onto the picker to do the same.
@@ -17,6 +17,13 @@ It looks like the spellbook: one tab per spell school, two columns of spells, wi
 
 Minimap button: left-click opens the picker, right-click opens settings, and dragging moves it
 around the minimap. `/rf minimap off` hides it.
+
+## Moving from Rank Flyout
+
+Rank in File was called Rank Flyout before 0.4.0. Delete the old `RankFlyout` folder from
+`Interface\AddOns` (or disable it), then log in. On each character, Rank in File moves your Rank Flyout
+bar macros and key bindings across, so your bars keep working. Positions, menu direction and
+scale start fresh, and floating buttons start hidden (`/rf float on` shows them).
 
 ## Using it
 
@@ -63,7 +70,7 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
 - The bar macro is:
   ```
   #showtooltip Frostbolt(Rank 3)
-  /click [btn:2] RankFlyoutButton1 RightButton; RankFlyoutButton1
+  /click [btn:2] RankInFileButton1 RightButton; RankInFileButton1
   ```
   Forever's `/click` calls `button:Click(mouseButton, down)` once, with `down = false`
   unless the macro says otherwise. The buttons set `useOnKeyDown = false` so that single
@@ -96,8 +103,8 @@ Adding, removing and moving buttons only work out of combat. Choosing ranks work
 | Check | Result |
 |---|---|
 | Lua 5.1 parse (luaparse 0.3.1), including the three secure snippets | Pass |
-| Smoke test `tests/rankflyout_smoke.lua` (fengari, stubbed API, including secret values) | 91 of 91 passed (0.3.1); the 0.3.0 code fails the 3 secret-value checks |
-| In the Forever client | Not yet run in an instance with 0.3.1 |
+| Smoke test `tests/rankinfile_smoke.lua` (fengari, stubbed API, including secret values and the move from Rank Flyout) | 112 of 112 passed (0.4.0) |
+| In the Forever client | 0.4.0 not yet run in the client |
 
 Points to check in the client:
 
@@ -115,3 +122,6 @@ Points to check in the client:
 9. 0.3.0 minimap button: the book icon, the right-click settings menu, and dragging.
 10. 0.3.1: fight in a dungeon with `/console scriptErrors 1` (or BugSack). There should be no
     errors, and the cooldown swipe should still show on the bar slot and floating button.
+11. 0.4.0: with the old `RankFlyout` folder removed, logging in moves its bar macros (same
+    slots, same rank) and key bindings, and prints what moved. Check a second character too. With it still enabled, a chat
+    line asks you to disable it and nothing moves.

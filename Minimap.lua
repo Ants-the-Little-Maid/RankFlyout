@@ -16,7 +16,7 @@ local DIR_ORDER = { "UP", "DOWN", "LEFT", "RIGHT" }
 -- Uses the game's own menu system (Blizzard_Menu).
 local function BuildMenu(owner, root)
 	local db = ns.db
-	root:CreateTitle("Rank Flyout")
+	root:CreateTitle("Rank in File")
 	root:CreateButton("Open spell picker", function() ns.TogglePicker() end)
 	root:CreateDivider()
 	root:CreateCheckbox("Floating buttons", function()
@@ -74,7 +74,7 @@ function ns.UpdateMinimapButton()
 end
 
 ns.OnLoaded(function()
-	button = CreateFrame("Button", "RankFlyoutMinimapButton", Minimap)
+	button = CreateFrame("Button", "RankInFileMinimapButton", Minimap)
 	button:SetSize(BUTTON_SIZE, BUTTON_SIZE)
 	button:SetFrameStrata("MEDIUM")
 	button:SetFrameLevel(8)
@@ -113,7 +113,7 @@ ns.OnLoaded(function()
 	end)
 	button:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		GameTooltip:SetText("Rank Flyout")
+		GameTooltip:SetText("Rank in File")
 		GameTooltip:AddLine("Left-click: spell picker", 1, 1, 1)
 		GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
 		GameTooltip:AddLine("Drag: move this button", 1, 1, 1)

@@ -19,7 +19,7 @@ jobs:
           luaVersion: "5.1.5"
 
       - name: Smoke test (whole addon against stub WoW functions)
-        run: lua tests/rankflyout_smoke.lua .
+        run: lua tests/rankinfile_smoke.lua .
 
   release:
     needs: test

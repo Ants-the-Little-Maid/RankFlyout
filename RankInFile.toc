@@ -1,10 +1,10 @@
 ## Interface: 16001
-## Title: Rank Flyout
+## Title: Rank in File
 ## Notes: Action buttons with a pop-out menu for swapping spell ranks, even in combat.
 ## Author: Ants
 ## Version: @project-version@
-## SavedVariables: RankFlyoutDB
+## SavedVariables: RankInFileDB
 
-RankFlyout.lua
+RankInFile.lua
 Picker.lua
 Minimap.lua

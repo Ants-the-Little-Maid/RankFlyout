@@ -1,5 +1,5 @@
 -- Spell picker: a spellbook-style window listing the player's known spells.
--- Clicking or dragging a spell makes (or reuses) its Rank Flyout button and puts
+-- Clicking or dragging a spell makes (or reuses) its Rank in File button and puts
 -- that button's macro on the cursor, ready to click into an action bar slot.
 -- Spells can also be dropped onto the window from the spellbook or the bars.
 -- Nothing here is secure: making macros is refused in combat by the core.
@@ -140,7 +140,7 @@ local function Entry_OnEnter(self)
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Click or drag: put on an action bar", 0.6, 0.8, 1)
 	if ns.FindFamily(self.fam.name) then
-		GameTooltip:AddLine("Right-click: remove from Rank Flyout", 0.6, 0.8, 1)
+		GameTooltip:AddLine("Right-click: remove from Rank in File", 0.6, 0.8, 1)
 	end
 	GameTooltip:Show()
 end
@@ -206,7 +206,7 @@ local function RefreshTabs()
 	for i, line in ipairs(skillLines) do
 		local tab = frame.Tabs[i]
 		if not tab then
-			tab = CreateFrame("Button", "RankFlyoutPickerFrameTab" .. i, frame, "PanelTopTabButtonTemplate")
+			tab = CreateFrame("Button", "RankInFilePickerFrameTab" .. i, frame, "PanelTopTabButtonTemplate")
 			tab:SetID(i)
 			tab:SetScript("OnClick", function(self)
 				PanelTemplates_SetTab(frame, self:GetID())
@@ -283,7 +283,7 @@ end
 local DIR_ORDER = { "UP", "RIGHT", "DOWN", "LEFT" }
 
 local function Build()
-	frame = CreateFrame("Frame", "RankFlyoutPickerFrame", UIParent, "ButtonFrameTemplate")
+	frame = CreateFrame("Frame", "RankInFilePickerFrame", UIParent, "ButtonFrameTemplate")
 	frame:SetSize(FRAME_W, FRAME_H)
 	frame:SetPoint("CENTER", -200, 40)
 	frame:SetFrameStrata("HIGH")
@@ -300,7 +300,7 @@ local function Build()
 	frame.Refresh = Refresh
 	frame.entries = entries -- for the smoke test
 
-	if frame.SetTitle then frame:SetTitle("Rank Flyout") end
+	if frame.SetTitle then frame:SetTitle("Rank in File") end
 	pcall(function()
 		frame:SetPortraitToClassIcon(select(2, UnitClass("player")))
 	end)

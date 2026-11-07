@@ -1,5 +1,5 @@
--- Smoke test for Rank Flyout with a stubbed WoW API (Lua 5.1 / fengari).
--- Run from the addon folder:  lua tests/rankflyout_smoke.lua .
+-- Smoke test for Rank in File with a stubbed WoW API (Lua 5.1 / fengari).
+-- Run from the addon folder:  lua tests/rankinfile_smoke.lua .
 -- (A host can instead set the global ADDON_DIR before running it.)
 -- It checks the spellbook scan, rebuild, macros, picker, minimap, slash commands
 -- and the secure snippets' logic. It does NOT prove the real client's secure
@@ -92,6 +92,8 @@ Minimap = NewFrame("Minimap", "Minimap")
 UISpecialFrames = {}
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function UnitClass() return "Mage", "MAGE" end
+local playerGUID = "Player-A"
+function UnitGUID() return playerGUID end
 function PanelTemplates_SetTab(f, id) f.selectedTab = id end
 function PanelTemplates_SetNumTabs(f, n) f.numTabs = n end
 PanelTemplates_TabResize = noop
@@ -138,7 +140,18 @@ function GetActionText(slot) local m = barSlots[slot]; return m and macros[m] an
 function InCombatLockdown() return inCombat end
 function IsShiftKeyDown() return false end
 function UnitExists() return true end
-function GetBindingKey(cmd) if cmd == "CLICK RankFlyoutButton1:LeftButton" then return "SHIFT-BUTTON4" end end
+local bindings = { ["SHIFT-BUTTON4"] = "CLICK RankInFileButton1:LeftButton" } -- [key] = command
+local savedBindingSet
+function GetBindingKey(cmd)
+	local keys = {}
+	for key, c in pairs(bindings) do if c == cmd then keys[#keys + 1] = key end end
+	table.sort(keys)
+	return unpack(keys)
+end
+function SetBinding(key, cmd) assert(not inCombat, "SetBinding in combat"); bindings[key] = cmd end
+function GetCurrentBindingSet() return 2 end
+function SaveBindings(set) savedBindingSet = set end
+unpack = unpack or table.unpack -- fengari is Lua 5.3
 local cursor
 function GetCursorInfo() if cursor then return "spell", 3, "spell", cursor end end
 function ClearCursor() cursor = nil end
@@ -213,9 +226,9 @@ end
 
 ---------------------------------------------------------------- load addon
 local ns = {}
-for _, file in ipairs({ "RankFlyout.lua", "Picker.lua", "Minimap.lua" }) do
+for _, file in ipairs({ "RankInFile.lua", "Picker.lua", "Minimap.lua" }) do
 	local chunk = assert(loadfile((ADDON_DIR or ".") .. "/" .. file))
-	chunk("RankFlyout", ns)
+	chunk("RankInFile", ns)
 end
 local events
 for _, f in ipairs(frames) do
@@ -223,14 +236,14 @@ for _, f in ipairs(frames) do
 	if ev and ev.ADDON_LOADED then events = f end
 end
 check(events ~= nil, "event frame registered ADDON_LOADED")
-events.scripts.OnEvent(events, "ADDON_LOADED", "RankFlyout")
-check(type(RankFlyoutDB) == "table", "saved variables created")
+events.scripts.OnEvent(events, "ADDON_LOADED", "RankInFile")
+check(type(RankInFileDB) == "table", "saved variables created")
 events.scripts.OnEvent(events, "PLAYER_LOGIN")
-check(RankFlyoutButton1 == nil, "no buttons before /rf add")
+check(RankInFileButton1 == nil, "no buttons before /rf add")
 
 -- add by name
-SlashCmdList.RANKFLYOUT("add Frostbolt")
-local b = RankFlyoutButton1
+SlashCmdList.RANKINFILE("add Frostbolt")
+local b = RankInFileButton1
 check(b ~= nil and b:IsShown(), "button 1 created")
 check(b:GetAttribute("type") == "spell", "main button type is spell")
 check(b:GetAttribute("spell") == 837, "defaults to highest rank (837)")
@@ -238,7 +251,7 @@ check(b:GetAttribute("rf-count") == 3, "three ranks found, passive ignored")
 check(b.rankText.text == "3", "rank label shows 3")
 check(b.hotkey.text == "sM4", "hotkey abbreviated")
 check(b.cooldown.cd and b.cooldown.cd[2] == 8, "cooldown applied for active spell")
-check(RankFlyoutDB.buttons[1].top == true, "follow-highest flag set")
+check(RankInFileDB.buttons[1].top == true, "follow-highest flag set")
 check(b.rankButtons[1]:GetAttribute("spell") == 837 and b.rankButtons[3]:GetAttribute("spell") == 116,
 	"menu lists highest first")
 check(b.arrow.shown, "arrow shown with several ranks")
@@ -259,7 +272,7 @@ check(r1b == false and r2b == false, "left-click on a rank does not cast")
 check(b:GetAttribute("spell") == 116, "rank 1 selected in combat")
 check(not b.flyout:IsShown(), "menu closes after choosing")
 check(b.rankText.text == "1", "label updated to rank 1")
-check(RankFlyoutDB.buttons[1].spellID == 116 and RankFlyoutDB.buttons[1].top == false, "choice saved")
+check(RankInFileDB.buttons[1].spellID == 116 and RankInFileDB.buttons[1].top == false, "choice saved")
 
 -- right-click a rank casts once without swapping
 Click(b, "RightButton")
@@ -289,8 +302,8 @@ events.scripts.OnEvent(events, "SPELLS_CHANGED")
 check(b:GetAttribute("spell") == 8407, "follows a newly learned top rank")
 
 -- empty button + drop a spell
-SlashCmdList.RANKFLYOUT("add")
-local b2 = RankFlyoutButton2
+SlashCmdList.RANKINFILE("add")
+local b2 = RankInFileButton2
 check(b2 and b2:GetAttribute("spell") == nil, "empty second button")
 check(not b2.arrow.shown, "no arrow without ranks")
 local r = Click(b2, "RightButton")
@@ -302,25 +315,25 @@ check(not b2.arrow.shown, "single rank hides arrow")
 
 -- combat blocks changes
 inCombat = true
-SlashCmdList.RANKFLYOUT("remove 2")
+SlashCmdList.RANKINFILE("remove 2")
 check(b2:IsShown(), "remove refused in combat")
 inCombat = false
-SlashCmdList.RANKFLYOUT("remove 2")
-check(not b2:IsShown() and RankFlyoutDB.buttons[2] == nil, "remove works out of combat")
+SlashCmdList.RANKINFILE("remove 2")
+check(not b2:IsShown() and RankInFileDB.buttons[2] == nil, "remove works out of combat")
 
 -- direction / scale / unknown spell / help
-SlashCmdList.RANKFLYOUT("dir left")
-check(RankFlyoutDB.direction == "LEFT", "direction saved")
-SlashCmdList.RANKFLYOUT("scale 1.5")
+SlashCmdList.RANKINFILE("dir left")
+check(RankInFileDB.direction == "LEFT", "direction saved")
+SlashCmdList.RANKINFILE("scale 1.5")
 check(b.scale == 1.5, "scale applied")
 local before = #printed
-SlashCmdList.RANKFLYOUT("add Pyroblast")
+SlashCmdList.RANKINFILE("add Pyroblast")
 check(printed[#printed]:find("couldn't find"), "unknown spell reported")
-SlashCmdList.RANKFLYOUT("")
+SlashCmdList.RANKINFILE("")
 check(#printed > before + 5, "help printed")
-SlashCmdList.RANKFLYOUT("list")
+SlashCmdList.RANKINFILE("list")
 
-check(_G["BINDING_NAME_CLICK RankFlyoutButton1:LeftButton"] ~= nil, "binding names defined")
+check(_G["BINDING_NAME_CLICK RankInFileButton1:LeftButton"] ~= nil, "binding names defined")
 
 ---------------------------------------------------------------- macro route
 check(b:GetAttribute("useOnKeyDown") == false, "main button acts on the /click (down = false)")
@@ -333,7 +346,7 @@ b.scripts.OnDragStart(b)
 local mi = pickedUp
 check(mi and mi > 120, "drag created a character macro and picked it up")
 check(macros[mi].name == "Rank 2", "macro named after the rank")
-check(macros[mi].body == "#showtooltip Frostbolt(Rank 2)\n/click [btn:2] RankFlyoutButton1 RightButton; RankFlyoutButton1",
+check(macros[mi].body == "#showtooltip Frostbolt(Rank 2)\n/click [btn:2] RankInFileButton1 RightButton; RankInFileButton1",
 	"macro body: tooltip for the rank, click / right-click lines")
 
 -- dragging again reuses the same macro
@@ -365,7 +378,7 @@ barSlots[5] = mi
 events.scripts.OnEvent(events, "ACTIONBAR_SLOT_CHANGED", 5)
 check(b.flyout.anchor == ActionButton5, "menu opens beside the bar slot")
 
--- bar right-click: /click RankFlyoutButton1 RightButton (one click, down = false)
+-- bar right-click: /click RankInFileButton1 RightButton (one click, down = false)
 local function SlashClick(button)
 	local pre = wraps[b]
 	return RunSnippet(pre, b, button, false)
@@ -383,27 +396,27 @@ events.scripts.OnEvent(events, "ACTIONBAR_SLOT_CHANGED", 5)
 check(b.flyout.anchor == b, "other macros don't capture the menu")
 
 -- float off: invisible, click-through, still shown for /click
-SlashCmdList.RANKFLYOUT("float off")
+SlashCmdList.RANKINFILE("float off")
 check(b:IsShown() and b.alpha == 0 and b.mouse == false, "float off hides the button but keeps it clickable")
-SlashCmdList.RANKFLYOUT("float on")
+SlashCmdList.RANKINFILE("float on")
 check(b.alpha == 1 and b.mouse == true, "float on restores it")
 
 -- /rf macro in combat refused; /rf remove deletes the macro
 inCombat = true
 pickedUp = nil
-SlashCmdList.RANKFLYOUT("macro 1")
+SlashCmdList.RANKINFILE("macro 1")
 check(pickedUp == nil, "/rf macro refused in combat")
 inCombat = false
-SlashCmdList.RANKFLYOUT("macro 1")
+SlashCmdList.RANKINFILE("macro 1")
 check(pickedUp == mi, "/rf macro picks up the macro")
-SlashCmdList.RANKFLYOUT("remove 1")
+SlashCmdList.RANKINFILE("remove 1")
 check(macros[mi] == nil and macros[7] ~= nil, "remove deletes only this button's macro")
 
 ---------------------------------------------------------------- minimap + spell picker
-local mm = RankFlyoutMinimapButton
+local mm = RankInFileMinimapButton
 check(mm ~= nil and mm:IsShown(), "minimap button created")
 mm.scripts.OnClick(mm, "LeftButton")
-local pf = RankFlyoutPickerFrame
+local pf = RankInFilePickerFrame
 check(pf ~= nil and pf:IsShown(), "minimap left-click opens the picker")
 check(pf.numTabs == 1, "one tab (the empty General line is skipped)")
 local es = pf.entries
@@ -416,8 +429,8 @@ check(es[2].fam.topID == 8407, "entry uses the highest rank")
 pickedUp = nil
 es[2].scripts.OnClick(es[2], "LeftButton")
 local idx = ns.FindFamily("Frostbolt")
-check(idx ~= nil, "clicking a spell makes a Rank Flyout button")
-check(pickedUp and macros[pickedUp].body:find("RankFlyoutButton" .. idx .. " RightButton;", 1, true), "its macro is on the cursor")
+check(idx ~= nil, "clicking a spell makes a Rank in File button")
+check(pickedUp and macros[pickedUp].body:find("RankInFileButton" .. idx .. " RightButton;", 1, true), "its macro is on the cursor")
 check(es[2].status.text == "Button " .. idx and es[2].check.shown, "entry marked as added")
 check(pf.hint.text:find("click an action bar slot"), "hint tells you to place it")
 
@@ -460,11 +473,11 @@ check(ns.db.float == false and ns.GetButton(idx).alpha == 0, "floating checkbox 
 ns.SetFloat(true)
 
 -- slash commands still work; new ones added
-SlashCmdList.RANKFLYOUT("spells")
+SlashCmdList.RANKINFILE("spells")
 check(not pf:IsShown(), "/rf spells toggles the picker")
-SlashCmdList.RANKFLYOUT("minimap off")
+SlashCmdList.RANKINFILE("minimap off")
 check(not mm:IsShown() and ns.db.minimap.hide, "/rf minimap off hides it")
-SlashCmdList.RANKFLYOUT("minimap on")
+SlashCmdList.RANKINFILE("minimap on")
 check(mm:IsShown(), "/rf minimap on shows it")
 mm.scripts.OnClick(mm, "RightButton")
 check(pf:IsShown(), "right-click without a menu system falls back to the picker")
@@ -520,6 +533,101 @@ events.scripts.OnUpdate(events, 1)
 check(sb.icon.tint and sb.icon.tint[1] == 0.5, "out-of-mana tint still works")
 C_Spell.GetSpellCooldown, C_Spell.IsSpellUsable = realCooldown, realUsable
 inCombat = false
+
+---------------------------------------------------------------- moving over from Rank Flyout
+local function count(text)
+	local n = 0
+	for _, line in ipairs(printed) do if line:find(text, 1, true) then n = n + 1 end end
+	return n
+end
+local function canonical(n, rank)
+	return ("#showtooltip Frostbolt(%s)\n/click [btn:2] RankInFileButton%d RightButton; RankInFileButton%d"):format(rank, n, n)
+end
+for i = 1, ns.MAX_BUTTONS do if RankInFileDB.buttons[i] then ns.RemoveButton(i) end end
+RankInFileDB.float = true
+RankInFileDB.movedButtons = nil
+-- Button 3 is already taken in Rank in File, so old button 3 has to move elsewhere.
+RankInFileDB.buttons[3] = { family = "Frost Armor", top = true }
+events.scripts.OnEvent(events, "SPELLS_CHANGED")
+local LEGACY_FROST = "#showtooltip Frostbolt(Rank 2)\n/click [btn:2] RankFlyoutButton3 RightButton; RankFlyoutButton3"
+-- Real macro indices are contiguous: account 1.., character 121..
+for i in pairs(macros) do macros[i] = nil end
+macros[1] = { name = "Nuke", icon = 1, body = "#showtooltip\n/cast Frostbolt" }
+macros[121] = { name = "Rank 2", icon = 135846, body = LEGACY_FROST } -- icon as GetMacroInfo may report it
+macros[122] = { name = "Fireball", icon = 134400,
+	body = "#showtooltip Fireball\n/click [btn:2] RankFlyoutButton5 RightButton; RankFlyoutButton5" }
+bindings["F"] = "CLICK RankFlyoutButton3:LeftButton"
+savedBindingSet = nil
+playerGUID = "Player-A"
+
+-- The old addon still loaded: leave everything alone, and say so once.
+RankFlyoutHeader = {}
+ns.MigrateFromRankFlyout()
+ns.MigrateFromRankFlyout()
+check(macros[121].body == LEGACY_FROST and count("Rank Flyout is still enabled") == 1,
+	"nothing moves while Rank Flyout is still loaded, and the warning shows once")
+RankFlyoutHeader = nil
+
+-- In combat it waits for combat to end.
+inCombat = true
+ns.MigrateFromRankFlyout()
+check(macros[121].body == LEGACY_FROST and RankInFileDB.buttons[1] == nil, "nothing moves in combat")
+inCombat = false
+events.scripts.OnEvent(events, "PLAYER_REGEN_ENABLED")
+
+local fb = ns.GetButton(1)
+check(RankInFileDB.buttons[1] and RankInFileDB.buttons[1].family == "Frostbolt", "old button 3 moves to a free button (1)")
+check(fb and fb:GetAttribute("spell") == 205 and RankInFileDB.buttons[1].top == false,
+	"its old rank (Rank 2) is kept, not the highest")
+check(macros[121].body == canonical(1, "Rank 2"), "old macro now clicks the new button, in the same macro slot")
+check(macros[121].icon == 134400, "moved macro keeps the question-mark icon so #showtooltip picks it")
+check(RankInFileDB.buttons[5] and RankInFileDB.buttons[5].family == "Fireball"
+	and macros[122].body:find("RankInFileButton5 RightButton; RankInFileButton5", 1, true),
+	"a single-rank spell keeps its old number when free")
+check(RankInFileDB.buttons[3].family == "Frost Armor", "the existing button 3 is untouched")
+check(macros[1].body == "#showtooltip\n/cast Frostbolt", "unrelated macros untouched")
+check(bindings["F"] == "CLICK RankInFileButton1:LeftButton" and savedBindingSet == 2,
+	"key binding follows its macro to button 1 and is saved")
+check(RankInFileDB.float == false, "floating buttons hidden")
+check(count("moved 2 bar macros and 1 key binding") == 1, "player told what moved")
+
+-- A key binding that loads later still follows the remembered move.
+bindings["G"] = "CLICK RankFlyoutButton3:LeftButton"
+events.scripts.OnEvent(events, "UPDATE_BINDINGS")
+check(bindings["G"] == "CLICK RankInFileButton1:LeftButton", "late key binding follows the move too")
+
+-- Nothing left to move: running again changes nothing and says nothing.
+local before = #printed
+events.scripts.OnEvent(events, "UPDATE_MACROS")
+check(#printed == before and macros[121].body == canonical(1, "Rank 2"), "running again is harmless")
+
+-- Another character (macros load after login): its macros move too. Its old
+-- Frostbolt button lands on the existing Frostbolt button, so two macros click it.
+playerGUID = "Player-B"
+macros[2] = { name = "Rank 1", icon = 134400,
+	body = "#showtooltip Frostbolt(Rank 1)\n/click [btn:2] RankFlyoutButton7 RightButton; RankFlyoutButton7" }
+macros[123] = { name = "Frost Armor", icon = 134400,
+	body = "#showtooltip Frost Armor\n/click [btn:2] RankFlyoutButton2 RightButton; RankFlyoutButton2" }
+macros[124] = { name = "Old", icon = 134400, body = "#showtooltip\n/click [btn:2] RankFlyoutButton9 RightButton; RankFlyoutButton9" }
+events.scripts.OnEvent(events, "UPDATE_MACROS")
+events.scripts.OnEvent(events, "UPDATE_MACROS")
+check(macros[2].body == canonical(1, "Rank 2") and macros[2].name == "Rank 2",
+	"second character's macro joins the existing button and is brought in step")
+check(macros[123].body:find("RankInFileButton3 RightButton; RankInFileButton3", 1, true), "matched by spell to button 3")
+check(RankInFileDB.movedButtons["Player-A"][3] == 1 and RankInFileDB.movedButtons["Player-B"][7] == 1
+	and RankInFileDB.movedButtons["Player-B"][2] == 3, "moves remembered per character")
+check(macros[124].body:find("RankFlyoutButton9", 1, true) and count("couldn't be moved") == 1,
+	"an unreadable old macro is left alone, and the player is told once")
+bindings["H"] = "CLICK RankFlyoutButton7:LeftButton"
+events.scripts.OnEvent(events, "UPDATE_BINDINGS")
+check(bindings["H"] == "CLICK RankInFileButton1:LeftButton", "second character's binding follows its own move")
+
+-- Both macros on button 1 follow a rank change, and both go when it is removed.
+fb:SetAttribute("spell", 837)
+check(macros[121].name == "Rank 3" and macros[2].name == "Rank 3", "every macro on a button follows rank changes")
+ns.RemoveButton(1)
+check(macros[121] == nil and macros[2] == nil and macros[123] ~= nil, "removing a button deletes all its macros")
+playerGUID = "Player-A"
 
 __RESULT = ("%d passed, %d failed"):format(passed, failed)
 __FAILED = failed

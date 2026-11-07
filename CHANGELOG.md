@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 (2026-11-07)
+
+- Renamed from Rank Flyout to **Rank in File**. The addon folder is now `RankInFile`, and `/rankinfile` replaces `/rankflyout`. `/rf` is unchanged.
+- Moving over: on each character, Rank in File finds Rank Flyout's bar macros and turns each one back into a button, keeping its rank. The macros stay in the same bar slots and now click the new buttons. Rank Flyout key bindings move across too. Other settings (positions, menu direction, scale) start fresh, and floating buttons start hidden (`/rf float on`). If Rank Flyout is still enabled, nothing moves until it is disabled.
+
 ## 0.3.1 (2026-11-06)
 
 - Fixed a flood of Lua errors in dungeons. Inside instances WoW hides cooldown times from addons as "secret" values, and Rank Flyout passed them straight to the cooldown swipe. Cooldowns now go through WoW's duration objects, which addons are allowed to use there. If those aren't available, the swipe is just left blank.
